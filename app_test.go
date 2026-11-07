@@ -324,3 +324,39 @@ func TestVerifiedLinkAndCommentPath(t *testing.T) {
 		t.Fatal(paths)
 	}
 }
+
+type flagAPI struct {
+	fakeAPI
+	flags *types.PublicAccessBlockConfiguration
+}
+
+func (f flagAPI) GetPublicAccessBlock(context.Context, *s3.GetPublicAccessBlockInput, ...func(*s3.Options)) (*s3.GetPublicAccessBlockOutput, error) {
+	return &s3.GetPublicAccessBlockOutput{PublicAccessBlockConfiguration: f.flags}, nil
+}
+func TestEveryBlockFlag(t *testing.T) {
+	for mask := 0; mask < 16; mask++ {
+		flags := &types.PublicAccessBlockConfiguration{}
+		vals := []**bool{&flags.BlockPublicAcls, &flags.BlockPublicPolicy, &flags.IgnorePublicAcls, &flags.RestrictPublicBuckets}
+		for i, field := range vals {
+			b := mask&(1<<i) != 0
+			*field = &b
+		}
+		r := inspect(context.Background(), flagAPI{flags: flags}, "bucket")
+		if len(r.Errors) != 0 || r.IncompleteBlock != (mask != 15) {
+			t.Fatalf("mask %d: %+v", mask, r)
+		}
+	}
+	for missing := 0; missing < 4; missing++ {
+		flags := &types.PublicAccessBlockConfiguration{}
+		vals := []**bool{&flags.BlockPublicAcls, &flags.BlockPublicPolicy, &flags.IgnorePublicAcls, &flags.RestrictPublicBuckets}
+		for _, field := range vals {
+			b := true
+			*field = &b
+		}
+		*vals[missing] = nil
+		r := inspect(context.Background(), flagAPI{flags: flags}, "bucket")
+		if len(r.Errors) == 0 || r.BlockState != "unknown" {
+			t.Fatalf("missing %d: %+v", missing, r)
+		}
+	}
+}
