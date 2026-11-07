@@ -35,10 +35,14 @@ Despite the `-csv` flag name, the implementation expects one bucket name per lin
 The identity needs permission for the selected bucket checks; account discovery also requires permission to list buckets. No bucket configuration changes are performed.
 
 ## Read the report
-Review `audit_results.md` together with `error.log`. The current report labels a bucket `Public / High` when its policy is public or a bucket-level block setting is missing/disabled. A Public Access Block API error can also produce that label.
+Review `audit_results.md` with `error.log`. Results distinguish public-policy findings, incomplete block configuration, enabled checked controls, and unknown/incomplete inspection. API failures never produce a clean verdict. A public policy or missing block is not proof of effective anonymous access: account controls, ACLs, access points, and object access remain outside scope.
 
-These labels indicate configuration concerns, not verified anonymous object access. Account-level controls, ACLs, access points, and complete effective permissions are outside these checks. A `Private / Low` row alone is not proof of isolation, particularly if a policy check failed. API errors require follow-up.
+Concurrency defaults to eight workers (`-workers 1..64`), each bucket inspection has a 30-second timeout, and results are sorted by bucket name. Account discovery uses paginated ListBuckets. For a credential-free synthetic reporting demonstration, run `go run . -demo testdata/demo.json`.
 
 ## Resume bullets
 - Built concurrent S3 bucket policy and Public Access Block checks in Go using AWS SDK v2 and the default credential chain to flag potential public-access configuration risks.
 - Added single-bucket and bucket-list targeting, timestamped Markdown reports, and separate API error logging to support security review.
+
+
+## Interview demonstration and verification
+See [INTERVIEW.md](INTERVIEW.md) for a walkthrough, expected results, design decisions, and limitations. Run `go test ./...`, `go vet ./...`, and `go build ./...`. GitHub Actions also runs the race detector on Linux.

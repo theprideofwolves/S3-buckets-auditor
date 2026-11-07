@@ -1,0 +1,6 @@
+[
+ {"Name":"demo-controls-enabled"},
+ {"Name":"demo-public-policy","PublicPolicy":true,"IncompleteBlock":true},
+ {"Name":"demo-block-incomplete","IncompleteBlock":true},
+ {"Name":"demo-access-denied","Errors":["policy: synthetic AccessDenied"]}
+]

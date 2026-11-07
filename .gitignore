@@ -1,0 +1,4 @@
+*.exe
+/cloud-auditor
+/audit_results.md
+/error.log

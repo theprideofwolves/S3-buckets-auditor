@@ -3,207 +3,215 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
-	"log"
-	"os"
-	"strings"
-	"sync"
-	"time"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
+	"io"
+	"log"
+	"os"
+	"sort"
+	"strings"
+	"sync"
+	"time"
 )
 
 type BucketReport struct {
-	Name                     string
-	IsPublicPolicy           bool
-	MissingPublicAccessBlock bool
-	Error                    error
+	Name                          string
+	PublicPolicy, IncompleteBlock bool
+	Errors                        []string
 }
 
-func main() {
-	bucketFlag := flag.String("bucket", "", "Scan a single bucket")
-	csvFlag := flag.String("csv", "", "CSV file containing a list of buckets")
-	flag.Parse()
-
-	ctx := context.TODO()
-
-	// Initialize AWS SDK config, triggering the Default Credential Chain
-	cfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		log.Fatalf("unable to load SDK config: %v", err)
+func (r BucketReport) Status() (string, string) {
+	if len(r.Errors) > 0 {
+		return "Unknown / incomplete", "Review"
 	}
-
-	// The SDK documentation states we should try to retrieve credentials to verify they exist
-	if cfg.Credentials != nil {
-		_, err = cfg.Credentials.Retrieve(ctx)
-		if err != nil {
-			fmt.Println("> \"Your AWS account credentials should be in your environment variables. Credentials are not accepted here for security concerns.\"")
-			os.Exit(1)
-		}
-	} else {
-		fmt.Println("> \"Your AWS account credentials should be in your environment variables. Credentials are not accepted here for security concerns.\"")
-		os.Exit(1)
+	if r.PublicPolicy {
+		return "Public policy detected", "High"
 	}
-
-	s3Client := s3.NewFromConfig(cfg)
-	var targetBuckets []string
-
-	// Determine bucket target list
-	if *bucketFlag != "" {
-		targetBuckets = append(targetBuckets, *bucketFlag)
-	} else if *csvFlag != "" {
-		file, err := os.Open(*csvFlag)
-		if err != nil {
-			log.Fatalf("failed to open CSV file: %v", err)
-		}
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line != "" {
-				targetBuckets = append(targetBuckets, line)
-			}
-		}
-		if err := scanner.Err(); err != nil {
-			log.Fatalf("error reading CSV file: %v", err)
-		}
-	} else {
-		bucketsOutput, err := s3Client.ListBuckets(ctx, &s3.ListBucketsInput{})
-		if err != nil {
-			// ListBuckets may also fail due to insufficient permissions or invalid missing identity on STS boundary
-			// if so, catching it here is a good fallback.
-			log.Fatalf("failed to list buckets: %v", err)
-		}
-		for _, b := range bucketsOutput.Buckets {
-			if b.Name != nil {
-				targetBuckets = append(targetBuckets, *b.Name)
-			}
-		}
+	if r.IncompleteBlock {
+		return "Block configuration incomplete", "Review"
 	}
+	return "Checked controls enabled", "Low (limited scope)"
+}
 
-	if len(targetBuckets) == 0 {
-		fmt.Println("No buckets to scan.")
-		return
+type bucketAPI interface {
+	GetBucketPolicyStatus(context.Context, *s3.GetBucketPolicyStatusInput, ...func(*s3.Options)) (*s3.GetBucketPolicyStatusOutput, error)
+	GetPublicAccessBlock(context.Context, *s3.GetPublicAccessBlockInput, ...func(*s3.Options)) (*s3.GetPublicAccessBlockOutput, error)
+}
+
+func codeIs(err error, code string) bool {
+	var e smithy.APIError
+	return errors.As(err, &e) && e.ErrorCode() == code
+}
+func inspect(ctx context.Context, c bucketAPI, name string) BucketReport {
+	r := BucketReport{Name: name}
+	p, err := c.GetBucketPolicyStatus(ctx, &s3.GetBucketPolicyStatusInput{Bucket: aws.String(name)})
+	switch {
+	case codeIs(err, "NoSuchBucketPolicy"):
+	case err != nil:
+		r.Errors = append(r.Errors, "policy: "+err.Error())
+	case p == nil || p.PolicyStatus == nil || p.PolicyStatus.IsPublic == nil:
+		r.Errors = append(r.Errors, "policy: empty API response")
+	default:
+		r.PublicPolicy = aws.ToBool(p.PolicyStatus.IsPublic)
 	}
-
-	// Scanner code starts here
-	fmt.Printf("Starting S3 bucket scan on %d buckets...\n", len(targetBuckets))
-
-	// Channel to gather concurrent results
-	reportsCh := make(chan BucketReport, len(targetBuckets))
+	b, err := c.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{Bucket: aws.String(name)})
+	switch {
+	case codeIs(err, "NoSuchPublicAccessBlockConfiguration"):
+		r.IncompleteBlock = true
+	case err != nil:
+		r.Errors = append(r.Errors, "block: "+err.Error())
+	case b == nil || b.PublicAccessBlockConfiguration == nil:
+		r.Errors = append(r.Errors, "block: empty API response")
+	default:
+		v := b.PublicAccessBlockConfiguration
+		r.IncompleteBlock = !(aws.ToBool(v.BlockPublicAcls) && aws.ToBool(v.BlockPublicPolicy) && aws.ToBool(v.IgnorePublicAcls) && aws.ToBool(v.RestrictPublicBuckets))
+	}
+	return r
+}
+func audit(ctx context.Context, c bucketAPI, names []string, workers int) []BucketReport {
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > len(names) {
+		workers = len(names)
+	}
+	jobs := make(chan string)
+	results := make(chan BucketReport, len(names))
 	var wg sync.WaitGroup
-
-	for _, bName := range targetBuckets {
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go func(bucketName string) {
+		go func() {
 			defer wg.Done()
-			fmt.Printf("Scanning bucket: %s...\n", bucketName)
-
-			isPublicPolicy := false
-			missingPublicAccessBlock := false
-			var bucketErr error
-
-			// Check bucket policy status
-			policyStatus, err := s3Client.GetBucketPolicyStatus(ctx, &s3.GetBucketPolicyStatusInput{
-				Bucket: aws.String(bucketName),
-			})
-			if err != nil {
-				// Record network/API errors that indicate actual connection issues vs just "no policy exists"
-				if !strings.Contains(err.Error(), "NoSuchBucketPolicy") {
-					bucketErr = err
-				}
-			} else if policyStatus.PolicyStatus != nil && policyStatus.PolicyStatus.IsPublic != nil {
-				isPublicPolicy = *policyStatus.PolicyStatus.IsPublic
+			for name := range jobs {
+				cx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				results <- inspect(cx, c, name)
+				cancel()
 			}
-
-			// Check public access block
-			pab, err := s3Client.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{
-				Bucket: aws.String(bucketName),
-			})
+		}()
+	}
+	for _, n := range names {
+		jobs <- n
+	}
+	close(jobs)
+	wg.Wait()
+	close(results)
+	var reports []BucketReport
+	for r := range results {
+		reports = append(reports, r)
+	}
+	sort.Slice(reports, func(i, j int) bool { return reports[i].Name < reports[j].Name })
+	return reports
+}
+func writeReports(out, errs io.Writer, reports []BucketReport, now time.Time) error {
+	if _, err := fmt.Fprintln(out, "# S3 Public Access Configuration Audit\n\nScope: bucket policy status and bucket-level Public Access Block only. These checks do not establish effective anonymous access. Review account controls, ACLs, access points, and API errors separately.\n\n| Bucket | Status | Risk | Public policy | Incomplete block | Audited (UTC) |\n| --- | --- | --- | --- | --- | --- |"); err != nil {
+		return err
+	}
+	clean := func(s string) string { return strings.NewReplacer("|", "/", "\n", " ", "\r", " ").Replace(s) }
+	for _, r := range reports {
+		status, risk := r.Status()
+		if _, err := fmt.Fprintf(out, "| %s | %s | %s | %t | %t | %s |\n", clean(r.Name), status, risk, r.PublicPolicy, r.IncompleteBlock, now.UTC().Format(time.RFC3339)); err != nil {
+			return err
+		}
+		for _, e := range r.Errors {
+			if _, err := fmt.Fprintf(errs, "[%s] %s: %s\n", now.UTC().Format(time.RFC3339), r.Name, e); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+func run() error {
+	bucket := flag.String("bucket", "", "Scan one bucket")
+	list := flag.String("csv", "", "One bucket name per line, no header")
+	workers := flag.Int("workers", 8, "Concurrent checks (1-64)")
+	demo := flag.String("demo", "", "Synthetic reports JSON; no AWS calls")
+	flag.Parse()
+	if *workers < 1 || *workers > 64 {
+		return fmt.Errorf("workers must be 1-64")
+	}
+	if *bucket != "" && *list != "" {
+		return fmt.Errorf("choose -bucket or -csv")
+	}
+	var reports []BucketReport
+	if *demo != "" {
+		if *bucket != "" || *list != "" {
+			return fmt.Errorf("demo cannot be combined with AWS targets")
+		}
+		data, err := os.ReadFile(*demo)
+		if err != nil {
+			return err
+		}
+		if err = json.Unmarshal(data, &reports); err != nil {
+			return err
+		}
+		sort.Slice(reports, func(i, j int) bool { return reports[i].Name < reports[j].Name })
+	} else {
+		ctx := context.Background()
+		cfg, err := config.LoadDefaultConfig(ctx)
+		if err != nil {
+			return err
+		}
+		client := s3.NewFromConfig(cfg)
+		var names []string
+		switch {
+		case *bucket != "":
+			names = []string{*bucket}
+		case *list != "":
+			f, err := os.Open(*list)
 			if err != nil {
-				missingPublicAccessBlock = true
-				if !strings.Contains(err.Error(), "NoSuchPublicAccessBlockConfiguration") {
-					if bucketErr == nil {
-						bucketErr = err
-					} else {
-						bucketErr = fmt.Errorf("Policy Error: %v | PAB Error: %v", bucketErr, err)
+				return err
+			}
+			defer f.Close()
+			scanner := bufio.NewScanner(f)
+			for scanner.Scan() {
+				if n := strings.TrimSpace(scanner.Text()); n != "" {
+					names = append(names, n)
+				}
+			}
+			if err := scanner.Err(); err != nil {
+				return err
+			}
+		default:
+			pager := s3.NewListBucketsPaginator(client, &s3.ListBucketsInput{})
+			for pager.HasMorePages() {
+				page, err := pager.NextPage(ctx)
+				if err != nil {
+					return err
+				}
+				for _, b := range page.Buckets {
+					if b.Name != nil {
+						names = append(names, *b.Name)
 					}
 				}
-			} else if pab.PublicAccessBlockConfiguration != nil {
-				// Check if any block setting explicitly permits public access
-				conf := pab.PublicAccessBlockConfiguration
-				if (conf.BlockPublicAcls != nil && !*conf.BlockPublicAcls) ||
-					(conf.BlockPublicPolicy != nil && !*conf.BlockPublicPolicy) ||
-					(conf.IgnorePublicAcls != nil && !*conf.IgnorePublicAcls) ||
-					(conf.RestrictPublicBuckets != nil && !*conf.RestrictPublicBuckets) {
-					missingPublicAccessBlock = true
-				}
-			} else {
-				missingPublicAccessBlock = true
 			}
-
-			reportsCh <- BucketReport{
-				Name:                     bucketName,
-				IsPublicPolicy:           isPublicPolicy,
-				MissingPublicAccessBlock: missingPublicAccessBlock,
-				Error:                    bucketErr,
-			}
-		}(bName)
-	}
-
-	// Separate goroutine to monitor waitgroup and securely close channel
-	go func() {
-		wg.Wait()
-		close(reportsCh)
-	}()
-
-	// Read outputs from channel until closed
-	var allReports []BucketReport
-	for r := range reportsCh {
-		allReports = append(allReports, r)
-	}
-
-	// Reporter code starts here
-	fmt.Println("\nScan completed. Generating report...")
-
-	reportFile, err := os.Create("audit_results.md")
-	if err != nil {
-		log.Fatalf("failed to create audit_results.md: %v", err)
-	}
-	defer reportFile.Close()
-
-	errorFile, err := os.OpenFile("error.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		log.Fatalf("failed to create error.log: %v", err)
-	}
-	defer errorFile.Close()
-
-	reportFile.WriteString("# S3 Public Access Audit Results\n\n")
-	reportFile.WriteString("| Bucket Name | Status | Risk Level | Last Audited |\n")
-	reportFile.WriteString("| ----------- | ------ | ---------- | ------------ |\n")
-
-	timestamp := time.Now().UTC().Format(time.RFC3339)
-
-	for _, r := range allReports {
-		if r.Error != nil {
-			errorFile.WriteString(fmt.Sprintf("[%s] Error scanning bucket %s: %v\n", timestamp, r.Name, r.Error))
 		}
-
-		status := "Private"
-		riskLevel := "Low"
-
-		if r.IsPublicPolicy || r.MissingPublicAccessBlock {
-			status = "Public"
-			riskLevel = "High"
-		}
-
-		reportFile.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n", r.Name, status, riskLevel, timestamp))
+		reports = audit(ctx, client, names, *workers)
 	}
-
-	fmt.Println("Audit report generated at audit_results.md")
-	fmt.Println("Any errors encountered were logged to error.log")
+	out, err := os.Create("audit_results.md")
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	errs, err := os.OpenFile("error.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	defer errs.Close()
+	if err := writeReports(out, errs, reports, time.Now()); err != nil {
+		return err
+	}
+	fmt.Printf("Reviewed %d buckets. See audit_results.md and error.log.\n", len(reports))
+	return nil
+}
+func main() {
+	if err := run(); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
 }
