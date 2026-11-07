@@ -160,7 +160,7 @@ func TestJiraCreateDedupAndUncertain(t *testing.T) {
 		status int
 		body   string
 		want   string
-	}{{"created", 201, `{"key":"SEC-123"}`, "linked"}, {"denied", 403, `{"error":"secret must not be shown"}`, "uncertain"}, {"throttled", 429, `{}`, "uncertain"}, {"server", 503, `{}`, "uncertain"}, {"invalid response", 201, `{}`, "uncertain"}} {
+	}{{"created", 201, `{"key":"SEC-123"}`, "linked"}, {"denied", 403, `{"error":"secret must not be shown"}`, "rejected"}, {"throttled", 429, `{}`, "uncertain"}, {"server", 503, `{}`, "uncertain"}, {"invalid response", 201, `{}`, "uncertain"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			calls := 0
 			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

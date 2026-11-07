@@ -51,6 +51,7 @@ existing issue. The link action validates access to the key.
 The first create stores a durable intent BEFORE contacting Jira. A lost response
 leaves a pending/uncertain delivery; repeat creates are blocked. Search Jira for
 the correlation string in the issue description and explicitly link its key.
+Definitive 400/401/403/404/422 rejections may be retried after correction.
 Existing links receive evidence comments rather than another issue. Comments
 can repeat if retried after a lost response: inspect Jira first. Ticket status
 is never changed automatically. API tokens are not saved, logged, or returned

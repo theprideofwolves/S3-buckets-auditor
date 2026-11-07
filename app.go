@@ -115,7 +115,7 @@ func compare(now Scan, old *Scan) map[string]string {
 		s := "Checked controls enabled"
 		switch {
 		case len(r.Errors) > 0:
-			s = "Unknown — reassessment incomplete"
+			s = "Unknown â€” reassessment incomplete"
 		case concern(r) && (!ok):
 			s = "New concern"
 		case concern(r) && concern(p):
@@ -215,6 +215,12 @@ func jiraBase(raw string) (string, error) {
 	}
 	return strings.TrimSuffix(raw, "/"), nil
 }
+
+type jiraHTTPError struct{ Status int }
+
+func (e *jiraHTTPError) Error() string {
+	return fmt.Sprintf("Jira returned HTTP %d; check credentials, permissions, required fields, and rate limits", e.Status)
+}
 func (a *App) jira(ctx context.Context, base, email, secret, method, path string, body any) (string, error) {
 	b, e := json.Marshal(body)
 	if e != nil {
@@ -237,11 +243,11 @@ func (a *App) jira(ctx context.Context, base, email, secret, method, path string
 		return "", errors.New("Jira response incomplete; reconcile before retry")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("Jira returned HTTP %d; check credentials, permissions, required fields, and rate limits", resp.StatusCode)
+		return "", &jiraHTTPError{Status: resp.StatusCode}
 	}
 	if method == "POST" && strings.HasSuffix(path, "/issue") {
 		var v struct{ Key string }
-		if json.Unmarshal(data, &v) != nil || v.Key == "" {
+		if json.Unmarshal(data, &v) != nil || !validKey(v.Key) {
 			return "", errors.New("Jira returned no issue key; reconcile before retry")
 		}
 		return v.Key, nil
@@ -433,6 +439,15 @@ func (a *App) action(r *http.Request) string {
 		key, e := a.jira(r.Context(), base, r.FormValue("email"), r.FormValue("secret"), "POST", "/rest/api/3/issue", map[string]any{"fields": map[string]any{"project": map[string]string{"key": project}, "issuetype": map[string]string{"name": kind}, "summary": "Review S3 configuration: " + report.Name, "description": adf(description)}})
 		if e != nil {
 			a.state.Tickets[keyID] = Ticket{State: "uncertain"}
+			var remote *jiraHTTPError
+			if errors.As(e, &remote) && (remote.Status == 400 || remote.Status == 401 || remote.Status == 403 || remote.Status == 404 || remote.Status == 422) {
+				a.state.Tickets[keyID] = Ticket{State: "rejected"}
+				if se := a.save(); se != nil {
+					a.state.Tickets[keyID] = Ticket{State: "uncertain"}
+					return "Could not save rejected delivery; reconcile before retry."
+				}
+				return e.Error() + ". Request rejected; correct the settings and retry."
+			}
 			if se := a.save(); se != nil {
 				return "Jira outcome uncertain and save failed; restart and reconcile before retrying."
 			}
@@ -495,7 +510,7 @@ func launch() error {
 	}
 	a.host = listener.Addr().String()
 	address := "http://" + a.host + "/?token=" + a.token
-	fmt.Println("S3 Auditor — open", address, "\nData:", dir, "\nClose this launcher with Ctrl+C to stop. Closing the browser alone does not stop the server.")
+	fmt.Println("S3 Auditor â€” open", address, "\nData:", dir, "\nClose this launcher with Ctrl+C to stop. Closing the browser alone does not stop the server.")
 	if os.Getenv("S3_AUDITOR_NO_BROWSER") == "" {
 		var cmd *exec.Cmd
 		switch runtime.GOOS {
