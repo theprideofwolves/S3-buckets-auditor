@@ -115,7 +115,7 @@ func compare(now Scan, old *Scan) map[string]string {
 		s := "Checked controls enabled"
 		switch {
 		case len(r.Errors) > 0:
-			s = "Unknown â€” reassessment incomplete"
+			s = "Unknown — reassessment incomplete"
 		case concern(r) && (!ok):
 			s = "New concern"
 		case concern(r) && concern(p):
@@ -510,7 +510,7 @@ func launch() error {
 	}
 	a.host = listener.Addr().String()
 	address := "http://" + a.host + "/?token=" + a.token
-	fmt.Println("S3 Auditor â€” open", address, "\nData:", dir, "\nClose this launcher with Ctrl+C to stop. Closing the browser alone does not stop the server.")
+	fmt.Println("S3 Auditor — open", address, "\nData:", dir, "\nClose this launcher with Ctrl+C to stop. Closing the browser alone does not stop the server.")
 	if os.Getenv("S3_AUDITOR_NO_BROWSER") == "" {
 		var cmd *exec.Cmd
 		switch runtime.GOOS {
