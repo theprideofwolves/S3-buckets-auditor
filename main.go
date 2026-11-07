@@ -24,6 +24,7 @@ type BucketReport struct {
 	Name                          string
 	PublicPolicy, IncompleteBlock bool
 	Errors                        []string
+	PolicyState, BlockState       string
 }
 
 func (r BucketReport) Status() (string, string) {
@@ -49,32 +50,62 @@ func codeIs(err error, code string) bool {
 	return errors.As(err, &e) && e.ErrorCode() == code
 }
 func inspect(ctx context.Context, c bucketAPI, name string) BucketReport {
-	r := BucketReport{Name: name}
+	r := BucketReport{Name: name, PolicyState: "unknown", BlockState: "unknown"}
+	if ctx.Err() != nil {
+		r.Errors = append(r.Errors, "inspection cancelled before collection")
+		return r
+	}
 	p, err := c.GetBucketPolicyStatus(ctx, &s3.GetBucketPolicyStatusInput{Bucket: aws.String(name)})
 	switch {
 	case codeIs(err, "NoSuchBucketPolicy"):
+		r.PolicyState = "no bucket policy"
 	case err != nil:
 		r.Errors = append(r.Errors, "policy: "+err.Error())
 	case p == nil || p.PolicyStatus == nil || p.PolicyStatus.IsPublic == nil:
 		r.Errors = append(r.Errors, "policy: empty API response")
 	default:
 		r.PublicPolicy = aws.ToBool(p.PolicyStatus.IsPublic)
+		r.PolicyState = "not public according to policy status"
+		if r.PublicPolicy {
+			r.PolicyState = "public according to policy status"
+		}
 	}
 	b, err := c.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{Bucket: aws.String(name)})
 	switch {
 	case codeIs(err, "NoSuchPublicAccessBlockConfiguration"):
 		r.IncompleteBlock = true
+		r.BlockState = "configuration absent"
 	case err != nil:
 		r.Errors = append(r.Errors, "block: "+err.Error())
 	case b == nil || b.PublicAccessBlockConfiguration == nil:
 		r.Errors = append(r.Errors, "block: empty API response")
 	default:
 		v := b.PublicAccessBlockConfiguration
+		if v.BlockPublicAcls == nil || v.BlockPublicPolicy == nil || v.IgnorePublicAcls == nil || v.RestrictPublicBuckets == nil {
+			r.Errors = append(r.Errors, "block: missing flag in API response")
+			return r
+		}
 		r.IncompleteBlock = !(aws.ToBool(v.BlockPublicAcls) && aws.ToBool(v.BlockPublicPolicy) && aws.ToBool(v.IgnorePublicAcls) && aws.ToBool(v.RestrictPublicBuckets))
+		r.BlockState = "all four flags enabled"
+		if r.IncompleteBlock {
+			r.BlockState = "one or more flags disabled"
+		}
 	}
 	return r
 }
 func audit(ctx context.Context, c bucketAPI, names []string, workers int) []BucketReport {
+	unique := map[string]bool{}
+	filtered := []string{}
+	for _, n := range names {
+		if !unique[n] {
+			unique[n] = true
+			filtered = append(filtered, n)
+		}
+	}
+	names = filtered
+	if workers > 64 {
+		workers = 64
+	}
 	if workers < 1 {
 		workers = 1
 	}
@@ -96,7 +127,11 @@ func audit(ctx context.Context, c bucketAPI, names []string, workers int) []Buck
 		}()
 	}
 	for _, n := range names {
-		jobs <- n
+		select {
+		case jobs <- n:
+		case <-ctx.Done():
+			results <- BucketReport{Name: n, Errors: []string{"scan cancelled; not assessed"}, PolicyState: "unknown", BlockState: "unknown"}
+		}
 	}
 	close(jobs)
 	wg.Wait()
@@ -210,6 +245,15 @@ func run() error {
 	return nil
 }
 func main() {
+	if len(os.Args) == 1 || (len(os.Args) == 2 && os.Args[1] == "-ui") {
+		if err := launch(); err != nil {
+			log.Print(err)
+			fmt.Println("Press Enter to close.")
+			bufio.NewReader(os.Stdin).ReadString('\n')
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		log.Print(err)
 		os.Exit(1)

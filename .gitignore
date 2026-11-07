@@ -2,3 +2,9 @@
 /cloud-auditor
 /audit_results.md
 /error.log
+
+/coverage
+/coverage.out
+/dist/
+/release/
+/package-*/
