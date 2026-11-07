@@ -100,3 +100,29 @@ and embedded dependency metadata. See architecture.md, interviewprep.md,
 explaining-each-decision-taken-over-others.md and RELEASE.md.
 Live AWS/Jira behavior requires an authorized environment and is not proven
 by mock tests. No ServiceNow, Slack, automatic remediation, or background sync.
+
+## Guided first run (v1.2.0)
+
+On a new installation, choose **Try the guided demo** or **Use my data**.
+The demo runs offline and explains its expected result. Setup checks are separate
+from scans/evaluations and never create tickets. After a successful task, the
+workspace shows the next step and remembers guide completion in onboarding.json.
+That file contains only a version and completion flag, never credentials.
+Use **Restart the guide** at any time; it does not reset existing reports.
+**Continue to existing workspace** opens saved work without rerunning a task.
+
+Jira-enabled tools offer a read-only sign-in check against /rest/api/3/myself.
+This verifies authentication only, not project creation/comment permissions.
+The check does not retain email/API tokens. Re-enter credentials when sending
+a reviewed finding. The AWS setup check in S3 Auditor verifies account identity
+only; it does not claim bucket access is verified.
+
+CredDrift offers an explicit native folder picker, a readability check, and
+transfer of the selected path into the scan form. On Linux the optional picker
+uses zenity; if unavailable, paste an absolute path instead. Vanguard and LogFlow
+offer downloadable example inputs. Vanguard evaluation needs no connection;
+optional Slack remains a CLI feature and this guide never sends Slack messages.
+
+A corrupt/missing guide-preference file shows the guide again without changing
+application results. If progress cannot be saved, the guide says so; exports and
+existing domain data are not discarded. Setup is single-user and local.

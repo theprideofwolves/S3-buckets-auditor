@@ -18,12 +18,14 @@ jobs:
       - run: go vet ./...
       - run: go test -race -count=1 ./...
       - run: go build -trimpath -o dist/s3-auditor${{ runner.os == 'Windows' && '.exe' || '' }} .
+      - name: Packaged onboarding smoke test
+        run: python .github/scripts/smoke.py s3-auditor dist/s3-auditor${{ runner.os == 'Windows' && '.exe' || '' }}
       - uses: actions/upload-artifact@v4
         with:
           name: s3-auditor-${{ runner.os }}
           path: dist/
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release]'))
     needs: test
     runs-on: ubuntu-latest
     permissions:
@@ -48,4 +50,7 @@ jobs:
       - name: Publish tagged release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release/* --title "S3 Auditor $GITHUB_REF_NAME" --notes-file RELEASE.md
+        run: |
+          tag="v$(cat VERSION)"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then tag="$GITHUB_REF_NAME"; fi
+          gh release create "$tag" release/* --target "$GITHUB_SHA" --title "S3 Auditor $tag" --notes-file RELEASE.md

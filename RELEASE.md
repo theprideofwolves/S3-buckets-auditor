@@ -28,3 +28,11 @@ Portable ZIP includes executable, README, RELEASE, architecture/interview/decisi
 docs and dependency build metadata. SHA256SUMS covers downloadable assets.
 Full license inventory and signed installers are not implemented in this release.
 No custom application license has been added without the repository owner's choice.
+
+## v1.2.0 onboarding checks
+Welcome/own-data choice, offline first task, expected-result explanation, next-step
+panel, export, restart safety and remembered completion are exercised by the
+packaged smoke test on Windows/Linux. Unit tests cover read-only Jira outcomes,
+credential non-retention, field preservation, invalid setup requests, missing or
+corrupt preferences, folder checks and mocked native selection. A real native
+dialog and live AWS/Jira credentials still require manual validation.

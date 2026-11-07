@@ -360,3 +360,32 @@ func TestEveryBlockFlag(t *testing.T) {
 		}
 	}
 }
+func TestS3GuideCheckAndDemo(t *testing.T) {
+	a := testApp(t)
+	a.initGuide()
+	h := a.guide.Wrap(http.HandlerFunc(a.handler))
+	post := func(path string, form url.Values) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "http://"+a.host+path+"?token="+a.token, strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		out := httptest.NewRecorder()
+		h.ServeHTTP(out, r)
+		return out
+	}
+	out := post("/setup/check", url.Values{"check": {"input"}, "profile": {"my-profile"}, "region": {""}})
+	if !strings.Contains(out.Body.String(), "Choose an AWS region") || len(a.state.Scans) != 0 {
+		t.Fatal(out.Body.String())
+	}
+	if a.guide.Value("profile") != "my-profile" {
+		t.Fatal("profile lost")
+	}
+	r := httptest.NewRequest("POST", "http://"+a.host+"/?token="+a.token+"&onboarding=demo", strings.NewReader("action=demo"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	out = httptest.NewRecorder()
+	h.ServeHTTP(out, r)
+	if !strings.Contains(out.Body.String(), "Your first result is ready") || len(a.state.Scans) != 1 {
+		t.Fatal(out.Body.String())
+	}
+	if a.state.Scans[0].Reports[3].PolicyState != "unknown" {
+		t.Fatal("demo hid unknown")
+	}
+}

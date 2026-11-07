@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cloud-auditor/internal/onboarding"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -43,6 +44,7 @@ type App struct {
 	file, token, host string
 	state             History
 	client            *http.Client
+	guide             *onboarding.Wizard
 }
 
 func randomID() string {
@@ -205,8 +207,24 @@ func collect(ctx context.Context, profile, region, targets string) (Scan, error)
 	return scan, nil
 }
 func demoScan() Scan {
-	return Scan{ID: randomID(), Scope: "SYNTHETIC DEMO", Demo: true, At: time.Now().UTC(), Reports: []BucketReport{{Name: "demo-public-policy", PublicPolicy: true}, {Name: "demo-incomplete-block", IncompleteBlock: true}, {Name: "demo-checked-controls"}, {Name: "demo-access-denied", Errors: []string{"policy: AccessDenied (synthetic)"}}}}
+	scan := Scan{ID: randomID(), Scope: "SYNTHETIC DEMO", Demo: true, At: time.Now().UTC(), Reports: []BucketReport{{Name: "demo-public-policy", PublicPolicy: true}, {Name: "demo-incomplete-block", IncompleteBlock: true}, {Name: "demo-checked-controls"}, {Name: "demo-access-denied", Errors: []string{"policy: AccessDenied (synthetic)"}}}}
+	for i := range scan.Reports {
+		r := &scan.Reports[i]
+		r.PolicyState = "not public according to policy status"
+		r.BlockState = "all four flags enabled"
+		if r.PublicPolicy {
+			r.PolicyState = "public according to policy status"
+		}
+		if r.IncompleteBlock {
+			r.BlockState = "one or more flags disabled"
+		}
+		if len(r.Errors) > 0 {
+			r.PolicyState = "unknown"
+		}
+	}
+	return scan
 }
+
 func ticketID(scope, bucket string) string { return scope + "|" + bucket }
 func jiraBase(raw string) (string, error) {
 	u, e := url.Parse(raw)
@@ -332,13 +350,23 @@ func (a *App) handler(w http.ResponseWriter, r *http.Request) {
 		}
 		delta = compare(*selected, old)
 	}
+	panel := template.HTML("")
+	profile, region, targets := "", "us-east-1", ""
+	if a.guide != nil {
+		panel = a.guide.Panel()
+		profile = a.guide.Value("profile")
+		region = a.guide.Value("region")
+		targets = a.guide.Value("targets")
+	}
 	data := struct {
-		Token, Message string
-		Selected       *Scan
-		Scans          []Scan
-		Delta          map[string]string
-		Tickets        map[string]Ticket
-	}{a.token, message, selected, a.state.Scans, delta, a.state.Tickets}
+		Token, Message           string
+		Selected                 *Scan
+		Scans                    []Scan
+		Delta                    map[string]string
+		Tickets                  map[string]Ticket
+		Guide                    template.HTML
+		Profile, Region, Targets string
+	}{a.token, message, selected, a.state.Scans, delta, a.state.Tickets, panel, profile, region, targets}
 	if e := page.Execute(w, data); e != nil {
 		return
 	}
@@ -367,7 +395,10 @@ func (a *App) action(r *http.Request) string {
 			a.state.Scans = a.state.Scans[:len(a.state.Scans)-1]
 			return "Could not save scan; check disk space and data directory permissions."
 		}
-		return "Scan saved. Review individual observations and coverage before creating a ticket."
+		if a.guide != nil {
+			a.guide.Complete()
+		}
+		return "Scan saved. Next: review each observation and any unknowns, then download the evidence. Jira handoff is optional."
 	case "ticket", "link":
 		var selected *Scan
 		for i := range a.state.Scans {
@@ -525,7 +556,8 @@ func launch() error {
 			go cmd.Wait()
 		}
 	}
-	server := &http.Server{Handler: http.HandlerFunc(a.handler), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second}
+	a.initGuide()
+	server := &http.Server{Handler: a.guide.Wrap(http.HandlerFunc(a.handler)), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	go func() { <-ctx.Done(); server.Close() }()
@@ -537,3 +569,25 @@ func launch() error {
 }
 
 var page = template.Must(template.New("page").Funcs(template.FuncMap{"tid": ticketID}).Parse(pageHTML))
+
+func (a *App) initGuide() {
+	a.guide = onboarding.New(onboarding.Config{Name: "S3 Auditor", Token: a.token, Host: a.host, Dir: filepath.Dir(a.file), Jira: true, Intro: "Collect S3 configuration evidence and follow a finding through remediation.", Expected: "Expect two configuration concerns, one checked-controls example and one unknown inspection. Unknown is not a pass. No AWS calls or real Jira tickets are made.", Next: "Review the observations and unknowns, export the selected scan, then set up an authorized AWS profile when you are ready.", Steps: []string{"Use an existing authorized AWS profile. For SSO, sign in with your organization first; for example: aws sso login --profile my-profile.", "Choose the bucket region and test identity below. The check confirms account identity only, not S3 access permissions.", "Open the workspace and scan named buckets. Blank targets discover up to 1000; discovery needs additional ListBuckets permission.", "Required read actions are GetBucketPolicyStatus and GetBucketPublicAccessBlock. Ask your administrator for read-only access; this tool never changes buckets."}, Fields: []onboarding.Field{{Name: "profile", Label: "AWS profile", Hint: "Blank uses the default SDK credential chain."}, {Name: "region", Label: "AWS region", Hint: "Use the region containing the buckets you want to inspect.", Default: "us-east-1"}, {Name: "targets", Label: "Optional bucket names", Hint: "Comma-separated names. Blank enables discovery in the workspace."}}, DemoFields: map[string]string{"action": "demo"}, Check: checkAWSIdentity})
+}
+func checkAWSIdentity(ctx context.Context, v map[string]string) (string, error) {
+	if strings.TrimSpace(v["region"]) == "" {
+		return "", errors.New("Choose an AWS region, for example us-east-1. No scan has run.")
+	}
+	opts := []func(*config.LoadOptions) error{config.WithRegion(v["region"])}
+	if v["profile"] != "" {
+		opts = append(opts, config.WithSharedConfigProfile(v["profile"]))
+	}
+	cfg, e := config.LoadDefaultConfig(ctx, opts...)
+	if e != nil {
+		return "", errors.New("Cannot load the AWS profile. Check its name and your AWS configuration. No scan has run.")
+	}
+	id, e := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
+	if e != nil || id.Account == nil {
+		return "", errors.New("AWS identity check failed. Sign in or renew your SSO session, then check profile, region and connectivity. No scan has run.")
+	}
+	return "AWS identity verified for account " + *id.Account + ". Confirm this is the account you intended. Bucket permissions are not verified by this check; open the workspace to run a read-only scan.", nil
+}
