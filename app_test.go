@@ -389,3 +389,58 @@ func TestS3GuideCheckAndDemo(t *testing.T) {
 		t.Fatal("demo hid unknown")
 	}
 }
+
+func TestUnknownAssessmentCannotSendJiraEvidence(t *testing.T) {
+	a := testApp(t)
+	a.state.Scans = []Scan{{ID: "live", Scope: "123 / us-east-1", Reports: []BucketReport{{Name: "bucket", PublicPolicy: true, Errors: []string{"policy unavailable"}}}}}
+	calls := 0
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(201) }))
+	defer srv.Close()
+	a.client = srv.Client()
+	form := url.Values{"action": {"ticket"}, "id": {"live"}, "bucket": {"bucket"}, "url": {srv.URL}, "project": {"SEC"}, "kind": {"Task"}}
+	for _, linked := range []bool{false, true} {
+		if linked {
+			a.state.Tickets[srv.URL+"|123 / us-east-1|bucket"] = Ticket{Key: "SEC-123", State: "linked"}
+		}
+		r := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		if message := a.action(r); !strings.Contains(message, "Inspection incomplete") {
+			t.Fatal(message)
+		}
+	}
+	if calls != 0 {
+		t.Fatal("unknown assessment sent a create or verification comment", calls)
+	}
+}
+
+func TestScanSaveFailurePreservesHistoryAndGuideProgress(t *testing.T) {
+	a := testApp(t)
+	a.state.Scans = []Scan{demoScan()}
+	before := a.state.Scans[0]
+	if err := a.save(); err != nil {
+		t.Fatal(err)
+	}
+	// A directory at the destination prevents replacement on both supported OSes.
+	a.file = filepath.Join(filepath.Dir(a.file), "unwritable-destination")
+	if err := os.Mkdir(a.file, 0700); err != nil {
+		t.Fatal(err)
+	}
+	a.initGuide()
+	r := httptest.NewRequest("POST", "/", strings.NewReader("action=demo"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if err := r.ParseForm(); err != nil {
+		t.Fatal(err)
+	}
+	if message := a.action(r); !strings.Contains(message, "Could not save scan") {
+		t.Fatal(message)
+	}
+	if len(a.state.Scans) != 1 || a.state.Scans[0].ID != before.ID || !a.state.Scans[0].At.Equal(before.At) {
+		t.Fatal("save failure changed old history", a.state.Scans)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(a.file), "onboarding.json")); !os.IsNotExist(err) {
+		t.Fatal("failed save marked onboarding complete", err)
+	}
+}

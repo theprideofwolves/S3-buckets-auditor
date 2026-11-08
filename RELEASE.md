@@ -1,4 +1,4 @@
-# Release verification
+# S3 Auditor v1.2.1: release verification
 
 ## Automated
 Unit/integration tests cover scope comparisons, missing/denied observations,
@@ -9,7 +9,8 @@ demo-to-live isolation, JSON export, Jira success/error responses, pending-creat
 reconciliation, and token non-persistence.
 
 Run go test -race and go vet as well as regular tests. CI builds Windows/Linux
-portable artifacts. Tags publish a release after test jobs pass. Version-tag
+portable artifacts. Version tags or explicit [release] commits on main publish
+the VERSION-selected release after test jobs pass. Version-tag
 publishing does not independently prove live AWS/Jira compatibility.
 
 ## Manual acceptance still required
@@ -26,13 +27,25 @@ a full CIS scanner, or proof of effective public exposure.
 ## Release packaging
 Portable ZIP includes executable, README, RELEASE, architecture/interview/decision
 docs and dependency build metadata. SHA256SUMS covers downloadable assets.
+The CLI reporting fixture is included at testdata/demo.json.
 Full license inventory and signed installers are not implemented in this release.
 No custom application license has been added without the repository owner's choice.
 
-## v1.2.0 onboarding checks
-Welcome/own-data choice, offline first task, expected-result explanation, next-step
-panel, export, restart safety and remembered completion are exercised by the
-packaged smoke test on Windows/Linux. Unit tests cover read-only Jira outcomes,
-credential non-retention, field preservation, invalid setup requests, missing or
-corrupt preferences, folder checks and mocked native selection. A real native
-dialog and live AWS/Jira credentials still require manual validation.
+## v1.2.1 scope cleanup and workflow checks
+
+Removed unrelated project references and test branches, unused folder selection,
+sample download and multipart setup code. Kept AWS/Jira identity checks and
+profile/region/target prefill. Clarified UI versus CLI bounds and STS identity
+permissions. The Go module now uses this repository's canonical import path.
+Default data directory, S3_AUDITOR_* overrides and saved history format remain.
+
+The S3-only packaged smoke test covers welcome/setup, the four synthetic buckets,
+unknown evidence, blocked demo handoff, export, guide restart, remembered
+completion, process restart, invalid scan input and preserving earlier scans.
+Unit tests cover read-only setup contracts, input preservation, credential
+non-retention and progress-save failures. Live AWS/Jira credentials and project
+permissions still require authorized validation; the demo makes no AWS calls.
+SDK workflow tests use a local fake STS/S3 service with synthetic credentials to
+check identity-only setup, paginated discovery, bucket reads and denied checks.
+Additional tests cover unknown observations blocking Jira creates/comments and
+failed history saves retaining earlier scans without marking guide completion.

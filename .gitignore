@@ -1,5 +1,5 @@
 *.exe
-/cloud-auditor
+/s3-auditor
 /audit_results.md
 /error.log
 

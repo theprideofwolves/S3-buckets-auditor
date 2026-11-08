@@ -12,25 +12,20 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
 )
 
 type Field struct{ Name, Label, Hint, Default string }
-type Sample struct{ Name, Content string }
 type Config struct {
 	Name, Token, Host, Dir, Intro, Expected, Next string
 	Steps                                         []string
 	Fields                                        []Field
-	Samples                                       []Sample
 	DemoFields                                    map[string]string
-	Multipart, Jira, Folder                       bool
+	Jira                                          bool
 	Check                                         func(context.Context, map[string]string) (string, error)
-	Picker                                        func(context.Context) (string, error)
 	Client                                        *http.Client
 }
 type Wizard struct {
@@ -49,9 +44,6 @@ func New(c Config) *Wizard {
 	}
 	if c.Client == nil {
 		w.c.Client = &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	}
-	if c.Picker == nil {
-		w.c.Picker = PickFolder
 	}
 	if c.Dir != "" {
 		b, e := os.ReadFile(filepath.Join(c.Dir, "onboarding.json"))
@@ -139,22 +131,6 @@ func (w *Wizard) Wrap(next http.Handler) http.Handler {
 			}
 		}
 		path := r.URL.Path
-		if path == "/onboarding/sample" {
-			if r.Method != "GET" {
-				http.Error(out, "GET required", 405)
-				return
-			}
-			for _, s := range w.c.Samples {
-				if s.Name == r.URL.Query().Get("name") {
-					out.Header().Set("Content-Type", "text/plain; charset=utf-8")
-					out.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", s.Name))
-					io.WriteString(out, s.Content)
-					return
-				}
-			}
-			http.NotFound(out, r)
-			return
-		}
 		if path == "/onboarding/start" {
 			if r.Method != "POST" {
 				http.Error(out, "POST required", 405)
@@ -186,11 +162,7 @@ func (w *Wizard) Wrap(next http.Handler) http.Handler {
 				http.Error(out, "Invalid or oversized setup request", 400)
 				return
 			}
-			timeout := 20 * time.Second
-			if r.FormValue("check") == "browse" {
-				timeout = 2 * time.Minute
-			}
-			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 			defer cancel()
 			values := map[string]string{}
 			for _, f := range w.c.Fields {
@@ -209,19 +181,6 @@ func (w *Wizard) Wrap(next http.Handler) http.Handler {
 				ok = e == nil
 				if e != nil {
 					message = e.Error()
-				}
-			case "browse":
-				if !w.c.Folder {
-					http.Error(out, "Unsupported check", 400)
-					return
-				}
-				path, e := w.c.Picker(ctx)
-				if e != nil {
-					message = "Folder picker unavailable or cancelled. Paste an absolute folder path instead; nothing was scanned."
-				} else {
-					values["path"] = path
-					message = "Folder selected. Check the folder, then open the workspace. No scan has run."
-					ok = true
 				}
 			case "input":
 				if w.c.Check == nil {
@@ -286,42 +245,6 @@ func (w *Wizard) render(out http.ResponseWriter, setup bool, message string, ok 
 	out.Header().Set("Content-Type", "text/html; charset=utf-8")
 	welcome.Execute(out, data)
 }
-func CheckFolder(_ context.Context, v map[string]string) (string, error) {
-	p := v["path"]
-	if !filepath.IsAbs(p) {
-		return "", errors.New("Paste or choose an absolute directory path, not a file or relative path.")
-	}
-	info, e := os.Lstat(p)
-	if e != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", errors.New("That folder is missing or is a symlink. Choose an existing real folder you are authorized to scan.")
-	}
-	f, e := os.Open(p)
-	if e != nil {
-		return "", errors.New("Cannot open that folder. Check read permissions or choose another folder.")
-	}
-	defer f.Close()
-	_, e = f.Readdirnames(1)
-	if e != nil && e != io.EOF {
-		return "", errors.New("Cannot list that folder. Check its read permissions.")
-	}
-	return "Folder is readable. No files were scanned. Open the workspace and run your first scan.", nil
-}
-func PickFolder(ctx context.Context) (string, error) {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-STA", "-WindowStyle", "Hidden", "-Command", `Add-Type -AssemblyName System.Windows.Forms; $dialog=New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description='Choose a folder to scan'; if($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){[Console]::Write($dialog.SelectedPath)}`)
-	case "darwin":
-		cmd = exec.CommandContext(ctx, "osascript", "-e", "POSIX path of (choose folder)")
-	default:
-		cmd = exec.CommandContext(ctx, "zenity", "--file-selection", "--directory")
-	}
-	b, e := cmd.Output()
-	if e != nil || strings.TrimSpace(string(b)) == "" {
-		return "", errors.New("folder selection unavailable or cancelled")
-	}
-	return strings.TrimSpace(string(b)), nil
-}
 func CheckJira(ctx context.Context, client *http.Client, origin, email, secret string) (string, error) {
 	u, e := url.Parse(strings.TrimSpace(origin))
 	if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
@@ -363,4 +286,4 @@ func CheckJira(ctx context.Context, client *http.Client, origin, email, secret s
 
 const style = `body{font:16px system-ui;background:#0b1627;color:#e4edf8;max-width:1000px;margin:40px auto;padding:0 24px}section{background:#18293e;padding:24px;border:1px solid #344a64;border-radius:12px;margin:20px 0}h1{font-size:38px}p,li{line-height:1.7}small{color:#b8cce0}input{display:block;width:92%;max-width:700px;background:#0b1627;color:white;border:1px solid #8ba3bd;padding:12px;border-radius:6px;margin:8px 0}label{display:block;margin:16px 0}button{background:#92e5c0;color:#102332;font-weight:700;padding:13px 18px;border:0;border-radius:6px;cursor:pointer;margin:8px 8px 8px 0}a{color:#a3d2ff}.notice{padding:18px;background:#29415b;border-radius:8px}.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px}pre{white-space:pre-wrap;overflow-wrap:anywhere}`
 
-var welcome = template.Must(template.New("welcome").Parse(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Get started - {{.C.Name}}</title><style>` + style + `</style><main><small>GETTING STARTED</small><h1>Welcome to {{.C.Name}}</h1><p>{{.C.Intro}}</p><p class="notice">Start with a safe offline example, or use data you are authorized to review. Setup checks never create tickets or change your source data.</p>{{if .Message}}<p role="status" class="notice">{{if .OK}}Check completed: {{else}}Needs attention: {{end}}{{.Message}}</p>{{end}}{{if not .Setup}}<div class="choices"><section><h2>Try the demo</h2><p>No accounts or credentials needed. {{.C.Expected}}</p><form method="post" {{if .C.Multipart}}enctype="multipart/form-data"{{end}} action="/?token={{.C.Token}}&onboarding=demo">{{range $k,$v:=.C.DemoFields}}<input type="hidden" name="{{$k}}" value="{{$v}}">{{end}}<button>Try the guided demo</button></form></section><section><h2>Use my data</h2><p>Check the input requirements and available connections before your first task.</p><a href="/setup?token={{.C.Token}}">Set up my workspace</a></section></div>{{else}}<section><h2>Set up your first task</h2><ol>{{range .C.Steps}}<li>{{.}}</li>{{end}}</ol>{{if .C.Fields}}<form method="post" action="/setup/check?token={{.C.Token}}">{{range .C.Fields}}<label>{{.Label}}<input name="{{.Name}}" value="{{index $.Values .Name}}"><small>{{.Hint}}</small></label>{{end}}<button name="check" value="input">Check setup without running the task</button>{{if .C.Folder}}<button name="check" value="browse">Choose folder...</button>{{end}}</form>{{end}}{{range .C.Samples}}<p><a href="/onboarding/sample?token={{$.C.Token}}&name={{.Name}}">Download example {{.Name}}</a></p>{{end}}<form method="post" action="/onboarding/start?token={{.C.Token}}"><input type="hidden" name="mode" value="own"><button>Open my workspace</button><small>You can continue without a setup check; that does not mark a connection as verified.</small></form></section>{{if .C.Jira}}<section><h2>Optional: test Jira sign-in</h2><p>Skip this if you only want local results. This makes one read-only identity request. It does not verify project permissions, create a ticket, or save your credentials.</p><form method="post" action="/setup/check?token={{.C.Token}}"><label>Jira site<input name="jira" placeholder="https://team.atlassian.net" required></label><label>Jira email<input name="email" type="email" required autocomplete="off"></label><label>API token<input name="secret" type="password" required autocomplete="off"></label><button name="check" value="jira">Test Jira sign-in - no ticket</button></form><p>For handoff, you also need a project key and issue type that your account may create/comment on. Check these with your Jira administrator.</p></section>{{end}}{{end}}<section><h2>Already have results?</h2><form method="post" action="/onboarding/start?token={{.C.Token}}"><input type="hidden" name="mode" value="resume"><button>Continue to existing workspace</button></form><p>Restarting this guide does not delete or reset saved results.</p></section><p>Close the application with Ctrl+C in its launcher console. Closing only the browser leaves it running.</p></main></html>`))
+var welcome = template.Must(template.New("welcome").Parse(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Get started - {{.C.Name}}</title><style>` + style + `</style><main><small>GETTING STARTED</small><h1>Welcome to {{.C.Name}}</h1><p>{{.C.Intro}}</p><p class="notice">Start with a safe offline example, or use data you are authorized to review. Setup checks never create tickets or change your source data.</p>{{if .Message}}<p role="status" class="notice">{{if .OK}}Check completed: {{else}}Needs attention: {{end}}{{.Message}}</p>{{end}}{{if not .Setup}}<div class="choices"><section><h2>Try the demo</h2><p>No accounts or credentials needed. {{.C.Expected}}</p><form method="post" action="/?token={{.C.Token}}&onboarding=demo">{{range $k,$v:=.C.DemoFields}}<input type="hidden" name="{{$k}}" value="{{$v}}">{{end}}<button>Try the guided demo</button></form></section><section><h2>Use my data</h2><p>Check the input requirements and available connections before your first task.</p><a href="/setup?token={{.C.Token}}">Set up my workspace</a></section></div>{{else}}<section><h2>Set up your first task</h2><ol>{{range .C.Steps}}<li>{{.}}</li>{{end}}</ol>{{if .C.Fields}}<form method="post" action="/setup/check?token={{.C.Token}}">{{range .C.Fields}}<label>{{.Label}}<input name="{{.Name}}" value="{{index $.Values .Name}}"><small>{{.Hint}}</small></label>{{end}}<button name="check" value="input">Check AWS identity without scanning</button></form>{{end}}<form method="post" action="/onboarding/start?token={{.C.Token}}"><input type="hidden" name="mode" value="own"><button>Open my workspace</button><small>You can continue without a setup check; that does not mark a connection as verified.</small></form></section>{{if .C.Jira}}<section><h2>Optional: test Jira sign-in</h2><p>Skip this if you only want local results. This makes one read-only identity request. It does not verify project permissions, create a ticket, or save your credentials.</p><form method="post" action="/setup/check?token={{.C.Token}}"><label>Jira site<input name="jira" placeholder="https://team.atlassian.net" required></label><label>Jira email<input name="email" type="email" required autocomplete="off"></label><label>API token<input name="secret" type="password" required autocomplete="off"></label><button name="check" value="jira">Test Jira sign-in - no ticket</button></form><p>For handoff, you also need a project key and issue type that your account may create/comment on. Check these with your Jira administrator.</p></section>{{end}}{{end}}<section><h2>Already have results?</h2><form method="post" action="/onboarding/start?token={{.C.Token}}"><input type="hidden" name="mode" value="resume"><button>Continue to existing workspace</button></form><p>Restarting this guide does not delete or reset saved results.</p></section><p>Close the application with Ctrl+C in its launcher console. Closing only the browser leaves it running.</p></main></html>`))

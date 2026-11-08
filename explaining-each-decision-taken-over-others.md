@@ -31,31 +31,19 @@ compilation/tests, not an interactive install on every distribution.
 All decisions are accepted for this release. Test evidence is in app_test.go and
 main_test.go; limitations and revisiting conditions are described in architecture.md.
 
-## Onboarding design and study notes
+## S3 onboarding decisions
 
-The internal/onboarding package owns the welcome/setup routes, escaped progress
-panel, declared non-secret session fields, and a versioned completion preference.
-Core handlers explicitly call Complete only after a successful domain operation.
-A failing policy evaluation is still a successful task; a partial LogFlow report
-is not marked complete. Guide status is not a security/compliance conclusion.
+Expose profile/region/target setup because these are the AWS assessment inputs.
+Keep STS and Jira identity checks separate from permissions and actual work:
+successful authentication must not be presented as a completed bucket assessment.
+There is no local source folder or upload workflow to configure.
 
-GET/sample/setup routes do not run scans or create tickets. POST setup checks
-use bounded read-only requests; Jira identity is not project authorization. Native
-folder selection is explicit, bounded and has a manual fallback. Preflight checks
-never store tokens, and Jira checks preserve previously selected local fields.
+Use the offline four-bucket demo to teach concern versus unknown without
+requiring an AWS account. Save its evidence in a clearly synthetic scope and
+block its Jira handoff. Keep old scans when the demo runs again.
 
-Why not a JS tour library? Server-rendered forms and a small guide keep packaging
-light, work offline and are keyboard accessible. Each independent repository
-contains its own internal copy and tests; no cross-project service is required.
-That trades centralized updates for simpler standalone distribution.
-
-Practice: explain a fresh launch, a failed check, a successful demo, persistence
-after restart, and why restarting the guide cannot delete assessment data. Read
-onboarding_test.go and the packaged smoke script to distinguish a connection
-check from an end-to-end live integration test.
-
-Browser regression: use Referrer-Policy same-origin rather than no-referrer.
-The latter can make a browser emit an opaque Origin on ordinary form posts,
-which correctly fails strict origin checks. Same-origin preserves legitimate
-local form submission while suppressing cross-origin referrers. Null and foreign
-origins remain rejected. This was verified through a real browser interaction.
+Remember guide completion after durable assessment save, including unknown
+observations worth reviewing. Keep that preference separate from history and
+ticket intent. Server-rendered forms avoid an extra frontend runtime. Use
+Referrer-Policy same-origin to preserve ordinary local form submissions while
+strict guards continue to reject foreign and opaque origins.

@@ -50,25 +50,24 @@ history, reassessment comparison, and reviewer-triggered Jira handoff; tested
 incomplete scans, local request boundaries, and uncertain remote-write outcomes.
 Use live-deployment claims only after documented actual validation.
 
-## Onboarding design and study notes
+## S3 setup and result semantics
 
-The internal/onboarding package owns the welcome/setup routes, escaped progress
-panel, declared non-secret session fields, and a versioned completion preference.
-Core handlers explicitly call Complete only after a successful domain operation.
-A failing policy evaluation is still a successful task; a partial LogFlow report
-is not marked complete. Guide status is not a security/compliance conclusion.
+Explain why a successful STS identity check proves the account identity rather
+than S3 read permissions. Jira identity likewise does not establish project
+authorization. Both checks are separate from assessment and handoff.
 
-GET/sample/setup routes do not run scans or create tickets. POST setup checks
-use bounded read-only requests; Jira identity is not project authorization. Native
-folder selection is explicit, bounded and has a manual fallback. Preflight checks
-never store tokens, and Jira checks preserve previously selected local fields.
+The four-row demo includes unknown collection as a normal review case. Saving
+that assessment completes the guide, not the security review. Follow the error
+precedence through inspect, BucketReport.Status, compare and the ticket guard.
+An unknown observation cannot produce a verified-clear reassessment or a Jira
+verification comment. Missing buckets are not assessed, not automatically resolved.
 
-Why not a JS tour library? Server-rendered forms and a small guide keep packaging
-light, work offline and are keyboard accessible. Each independent repository
-contains its own internal copy and tests; no cross-project service is required.
-That trades centralized updates for simpler standalone distribution.
+History compares the immediately previous saved scan in the same account/region.
+It is not a per-bucket last-known inventory: a bucket omitted from an intervening
+scan may appear as a new concern on return. Explain this limit rather than
+claiming continuous drift monitoring or an immutable audit ledger.
 
-Practice: explain a fresh launch, a failed check, a successful demo, persistence
-after restart, and why restarting the guide cannot delete assessment data. Read
-onboarding_test.go and the packaged smoke script to distinguish a connection
-check from an end-to-end live integration test.
+Use app_test.go, main_test.go and the S3-only packaged smoke test as evidence.
+Distinguish the GUI demo from the CLI JSON reporting fixture, and fake-service
+contract checks from live AWS/Jira validation. Describe the AI assistance and
+the implementation/testing work you personally reviewed and can demonstrate.

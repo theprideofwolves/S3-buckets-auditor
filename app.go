@@ -1,13 +1,13 @@
 package main
 
 import (
-	"cloud-auditor/internal/onboarding"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/theprideofwolves/S3-buckets-auditor/internal/onboarding"
 	"html/template"
 	"io"
 	"net"

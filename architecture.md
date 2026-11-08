@@ -40,25 +40,24 @@ Two checks only, selected-region handling, no effective-exposure determination.
 No continuous scanning, shared deployment, automatic retries of Jira creates,
 provider credential storage, or immutable evidence claims.
 
-## Onboarding design and study notes
+## S3 onboarding and saved evidence
 
-The internal/onboarding package owns the welcome/setup routes, escaped progress
-panel, declared non-secret session fields, and a versioned completion preference.
-Core handlers explicitly call Complete only after a successful domain operation.
-A failing policy evaluation is still a successful task; a partial LogFlow report
-is not marked complete. Guide status is not a security/compliance conclusion.
+initGuide declares only AWS profile, region and optional targets. Setup checks
+STS account identity through checkAWSIdentity or Jira identity through the
+read-only adapter. No folder picker, source upload or sample-download route is
+needed. Setup checks never collect bucket observations or change history.
 
-GET/sample/setup routes do not run scans or create tickets. POST setup checks
-use bounded read-only requests; Jira identity is not project authorization. Native
-folder selection is explicit, bounded and has a manual fallback. Preflight checks
-never store tokens, and Jira checks preserve previously selected local fields.
+Non-secret inputs prefill the assessment form within the current session. Jira
+credentials are never retained. After collection and durable save, the guide
+records completion; a saved scan can contain unknown bucket checks. Collection
+or persistence failure does not mark completion. onboarding.json is independent
+of history.json, so restarting the guide cannot remove saved scans or mappings.
 
-Why not a JS tour library? Server-rendered forms and a small guide keep packaging
-light, work offline and are keyboard accessible. Each independent repository
-contains its own internal copy and tests; no cross-project service is required.
-That trades centralized updates for simpler standalone distribution.
+The packaged smoke test runs the binary, checks all four synthetic observations,
+blocks demo ticket creation, exports evidence, restarts and verifies immutable
+observation fields, rejects a missing-region scan, and retains earlier history
+after a second demo. HTTP smoke tests do not verify an interactive OS browser.
 
-Practice: explain a fresh launch, a failed check, a successful demo, persistence
-after restart, and why restarting the guide cannot delete assessment data. Read
-onboarding_test.go and the packaged smoke script to distinguish a connection
-check from an end-to-end live integration test.
+The CLI shares inspect/audit/reporting with the UI but writes Markdown/error.log
+without GUI history or Jira. Its discovery/list input is not capped at 1000 and
+it lacks the UI's overall deadline; avoid interpreting the UI bounds as CLI bounds.

@@ -22,10 +22,12 @@ Blank targets use paginated discovery, capped at 1000 buckets. Wrong-region
 responses and denied permissions remain unknown; select the right region
 and rescan. The app never changes AWS resources.
 
-Required actions: `sts:GetCallerIdentity`, `s3:GetBucketPolicyStatus`,
+Required S3 read actions: `s3:GetBucketPolicyStatus`,
 `s3:GetBucketPublicAccessBlock`; add `s3:ListAllMyBuckets` for discovery.
 Restrict bucket permissions to authorized bucket ARNs. See `permissions.json`.
-The SDK handles transient AWS retries within the scan timeout.
+The SDK handles transient AWS retries within the UI scan timeout.
+The STS identity request needs valid credentials but no explicit IAM allow for
+GetCallerIdentity, as documented in the [AWS API reference](https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html).
 
 Scope is **bucket policy public status and bucket Public Access Block** only.
 No account-level controls, ACLs, access points, object data, anonymous probes,
@@ -65,7 +67,8 @@ separate mappings. An origin change or state loss is NOT cross-machine dedup.
 
 ## Data and backups
 Default location: OS user configuration directory / `S3Auditor`.
-Override using `S3_AUDITOR_DATA_DIR`. History contains account/bucket names and
+Override the exact directory using `S3_AUDITOR_DATA_DIR`;
+`S3_AUDITOR_NO_BROWSER=1` suppresses automatic browser opening. History contains account/bucket names and
 API diagnostics: treat it as confidential. It contains no Jira tokens. Stop the
 app before backing up `history.json`; restore it into the same directory while
 stopped. Upgrades replace the executable, not the data. This release has no
@@ -86,7 +89,10 @@ s3-auditor -demo testdata/demo.json
 `-csv` is a legacy flag: one name per line, not CSV columns. CLI writes
 `audit_results.md` and appends `error.log` in the current working directory.
 CLI does not persist UI history or create Jira issues. Exit 1 means execution
-failure; configuration findings alone do not produce a failing exit code.
+failure; configuration findings and per-bucket inspection errors alone do not
+produce a failing exit code. Inspect the report and error log. CLI collection
+has per-bucket timeouts but no overall three-minute UI deadline or 1000-bucket cap.
+Release ZIPs include `testdata/demo.json` for the CLI's offline reporting example.
 
 ## Testing and release
 ```
@@ -95,34 +101,34 @@ go test -race ./...
 go vet ./...
 go build -trimpath -o s3-auditor.exe .
 ```
-CI checks Windows and Linux; tag builds produce portable ZIPs, checksums,
+CI checks Windows and Linux; version tags or explicit `[release]` commits on
+main publish VERSION-selected portable ZIPs, checksums,
 and embedded dependency metadata. See architecture.md, interviewprep.md,
 explaining-each-decision-taken-over-others.md and RELEASE.md.
 Live AWS/Jira behavior requires an authorized environment and is not proven
-by mock tests. No ServiceNow, Slack, automatic remediation, or background sync.
+by mock tests. Jira is the only ticketing integration; assessment never changes AWS resources.
 
-## Guided first run (v1.2.0)
+## Guided first run
 
-On a new installation, choose **Try the guided demo** or **Use my data**.
-The demo runs offline and explains its expected result. Setup checks are separate
-from scans/evaluations and never create tickets. After a successful task, the
-workspace shows the next step and remembers guide completion in onboarding.json.
-That file contains only a version and completion flag, never credentials.
-Use **Restart the guide** at any time; it does not reset existing reports.
-**Continue to existing workspace** opens saved work without rerunning a task.
+Choose **Try the guided demo** or **Use my data**. The offline demo saves four
+synthetic bucket observations: two configuration concerns, one checked-controls
+example and one denied/unknown policy inspection. It makes no AWS calls and
+cannot create real Jira issues. Existing scan history is preserved.
 
-Jira-enabled tools offer a read-only sign-in check against /rest/api/3/myself.
-This verifies authentication only, not project creation/comment permissions.
-The check does not retain email/API tokens. Re-enter credentials when sending
-a reviewed finding. The AWS setup check in S3 Auditor verifies account identity
-only; it does not claim bucket access is verified.
+For your own account, enter an authorized AWS profile, bucket region and optional
+bucket names. Setup's AWS check calls STS GetCallerIdentity only. It confirms the
+account, not S3 permissions, and does not scan buckets. The selected non-secret
+inputs remain in session memory and prefill the scan form. Start the read-only
+assessment explicitly from the workspace.
 
-CredDrift offers an explicit native folder picker, a readability check, and
-transfer of the selected path into the scan form. On Linux the optional picker
-uses zenity; if unavailable, paste an absolute path instead. Vanguard and LogFlow
-offer downloadable example inputs. Vanguard evaluation needs no connection;
-optional Slack remains a CLI feature and this guide never sends Slack messages.
+The optional Jira sign-in check calls GET /rest/api/3/myself. It checks identity,
+not project create/comment permissions, never creates tickets, and does not retain
+your email/API token. Re-enter credentials for a reviewed live finding handoff.
 
-A corrupt/missing guide-preference file shows the guide again without changing
-application results. If progress cannot be saved, the guide says so; exports and
-existing domain data are not discarded. Setup is single-user and local.
+A saved assessment remembers guide completion in onboarding.json, containing
+only a version and completion flag. Individual bucket checks may still be unknown:
+guide completion is not a successful security verdict. Setup checks, collection
+failure/timeout and history-save failure do not mark the guide complete.
+**Restart the guide** preserves history; **Continue to existing workspace** opens
+saved work without scanning. Missing/corrupt guide preferences show the guide
+again; progress-save failures are shown without discarding saved scans.

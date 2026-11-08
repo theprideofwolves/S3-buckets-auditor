@@ -58,40 +58,34 @@ func TestFirstRunChoiceAndPersistence(t *testing.T) {
 		t.Fatal(string(b))
 	}
 }
-func TestSetupChecksAreNonDestructiveAndPrefill(t *testing.T) {
-	calls := 0
-	checks := 0
-	w := New(Config{Name: "Example", Token: "t", Folder: true, Fields: []Field{{Name: "path", Label: "Folder"}}, Check: func(ctx context.Context, v map[string]string) (string, error) {
+func TestAWSSetupChecksAreNonDestructiveAndPrefill(t *testing.T) {
+	calls, checks := 0, 0
+	w := New(Config{Name: "S3 Auditor", Token: "t", Fields: []Field{{Name: "profile", Label: "AWS profile"}}, Check: func(ctx context.Context, v map[string]string) (string, error) {
 		checks++
-		if v["path"] != "<script>" {
+		if v["profile"] != "<script>" {
 			t.Fatal(v)
 		}
-		return "Readable, not scanned", nil
-	}, Picker: func(context.Context) (string, error) { return "/chosen/folder", nil }})
+		return "Identity checked, not scanned", nil
+	}})
 	h := w.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
-	out := req(h, "POST", "/setup/check?token=t", url.Values{"check": {"input"}, "path": {"<script>"}})
-	if out.Code != 200 || !strings.Contains(out.Body.String(), "Readable, not scanned") || strings.Contains(out.Body.String(), "value=\"<script>") || calls != 0 || checks != 1 {
-		t.Fatal(out.Body.String())
+	out := req(h, "POST", "/setup/check?token=t", url.Values{"check": {"input"}, "profile": {"<script>"}})
+	if out.Code != 200 || !strings.Contains(out.Body.String(), "Identity checked, not scanned") || strings.Contains(out.Body.String(), "value=\"<script>") || calls != 0 || checks != 1 || w.Value("profile") != "<script>" || w.done {
+		t.Fatal(out.Body.String(), calls, checks)
 	}
-	req(h, "POST", "/setup/check?token=t", url.Values{"check": {"browse"}})
-	if w.Value("path") != "/chosen/folder" || calls != 0 {
-		t.Fatal("picker ran task")
+	if req(h, "POST", "/setup/check?token=t", url.Values{"check": {"browse"}}).Code != 400 {
+		t.Fatal("unsupported setup action accepted")
 	}
 }
-func TestRequestAndSampleBoundaries(t *testing.T) {
-	w := New(Config{Token: "t", Host: "localhost", Samples: []Sample{{"example.txt", "synthetic"}}})
+func TestRequestBoundaries(t *testing.T) {
+	w := New(Config{Token: "t", Host: "localhost"})
 	h := w.Wrap(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) { out.WriteHeader(204) }))
 	for _, tc := range []struct {
 		method, path string
 		code         int
-	}{{"GET", "/", 403}, {"DELETE", "/?token=t", 405}, {"GET", "/onboarding/start?token=t", 405}, {"GET", "/setup/check?token=t", 405}, {"POST", "/welcome?token=t", 405}, {"GET", "/onboarding/sample?token=t&name=../../secret", 404}} {
+	}{{"GET", "/", 403}, {"DELETE", "/?token=t", 405}, {"GET", "/onboarding/start?token=t", 405}, {"GET", "/setup/check?token=t", 405}, {"POST", "/welcome?token=t", 405}, {"POST", "/setup?token=t", 405}} {
 		if got := req(h, tc.method, tc.path, nil).Code; got != tc.code {
 			t.Fatalf("%s %s: %d", tc.method, tc.path, got)
 		}
-	}
-	out := req(h, "GET", "/onboarding/sample?token=t&name=example.txt", nil)
-	if out.Body.String() != "synthetic" || !strings.Contains(out.Header().Get("Content-Disposition"), "example.txt") {
-		t.Fatal(out)
 	}
 	if req(h, "POST", "/onboarding/start?token=t", url.Values{"mode": {"wrong"}}).Code != 400 {
 		t.Fatal("bad choice")
@@ -104,7 +98,7 @@ func TestRequestAndSampleBoundaries(t *testing.T) {
 	}
 	r := httptest.NewRequest("POST", "http://localhost/setup/check?token=t", nil)
 	r.Header.Set("Origin", "https://evil.test")
-	out = httptest.NewRecorder()
+	out := httptest.NewRecorder()
 	h.ServeHTTP(out, r)
 	if out.Code != 403 {
 		t.Fatal("origin")
@@ -139,7 +133,7 @@ func TestJiraReadOnlyAndNoCredentialRetention(t *testing.T) {
 			}))
 			defer srv.Close()
 			dir := t.TempDir()
-			w := New(Config{Token: "t", Dir: dir, Jira: true, Client: srv.Client(), Fields: []Field{{Name: "path", Default: "/selected"}}})
+			w := New(Config{Token: "t", Dir: dir, Jira: true, Client: srv.Client(), Fields: []Field{{Name: "profile", Default: "selected-account"}}})
 			h := w.Wrap(http.NotFoundHandler())
 			out := req(h, "POST", "/setup/check?token=t", url.Values{"check": {"jira"}, "jira": {srv.URL}, "email": {"analyst@example.test"}, "secret": {"sensitive-only-for-test"}})
 			if out.Code != 200 || calls != 1 {
@@ -151,7 +145,7 @@ func TestJiraReadOnlyAndNoCredentialRetention(t *testing.T) {
 			if strings.Contains(out.Body.String(), "sensitive-only-for-test") || strings.Contains(out.Body.String(), "analyst@example.test") {
 				t.Fatal("credential echoed")
 			}
-			if w.Value("secret") != "" || w.Value("email") != "" || w.done || w.Value("path") != "/selected" {
+			if w.Value("secret") != "" || w.Value("email") != "" || w.done || w.Value("profile") != "selected-account" {
 				t.Fatal("credential or completion retained")
 			}
 			files, _ := os.ReadDir(dir)
@@ -161,21 +155,8 @@ func TestJiraReadOnlyAndNoCredentialRetention(t *testing.T) {
 		})
 	}
 }
-func TestFolderAndPreferenceFailures(t *testing.T) {
+func TestPreferenceFailures(t *testing.T) {
 	dir := t.TempDir()
-	if _, e := CheckFolder(context.Background(), map[string]string{"path": dir}); e != nil {
-		t.Fatal(e)
-	}
-	for _, p := range []string{"relative", filepath.Join(dir, "missing")} {
-		if _, e := CheckFolder(context.Background(), map[string]string{"path": p}); e == nil {
-			t.Fatal(p)
-		}
-	}
-	p := filepath.Join(dir, "file.txt")
-	os.WriteFile(p, []byte("not a directory"), 0600)
-	if _, e := CheckFolder(context.Background(), map[string]string{"path": p}); e == nil {
-		t.Fatal("file accepted as folder")
-	}
 	os.WriteFile(filepath.Join(dir, "onboarding.json"), []byte("corrupt"), 0600)
 	w := New(Config{Dir: dir})
 	if w.done || w.started {
