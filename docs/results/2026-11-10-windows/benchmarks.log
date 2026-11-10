@@ -1,0 +1,46 @@
+goos: windows
+goarch: amd64
+pkg: github.com/theprideofwolves/S3-buckets-auditor
+cpu: AMD Ryzen 9 5980HX with Radeon Graphics        
+BenchmarkSyntheticCollection/buckets=100/workers=1-16         	       1	 279487500 ns/op	  162384 B/op	    2943 allocs/op
+BenchmarkSyntheticCollection/buckets=100/workers=1-16         	       1	 302410300 ns/op	  162192 B/op	    2937 allocs/op
+BenchmarkSyntheticCollection/buckets=100/workers=1-16         	       1	 301774700 ns/op	  162272 B/op	    2938 allocs/op
+BenchmarkSyntheticCollection/buckets=100/workers=1-16         	       1	 301420000 ns/op	  161408 B/op	    2931 allocs/op
+BenchmarkSyntheticCollection/buckets=100/workers=1-16         	       1	 308380300 ns/op	  162192 B/op	    2937 allocs/op
+BenchmarkSyntheticCollection/buckets=100/workers=8-16         	       1	  40627200 ns/op	  168800 B/op	    2974 allocs/op
+BenchmarkSyntheticCollection/buckets=100/workers=8-16         	       1	  40359500 ns/op	  166816 B/op	    2964 allocs/op
+BenchmarkSyntheticCollection/buckets=100/workers=8-16         	       1	  39702800 ns/op	  164048 B/op	    2946 allocs/op
+BenchmarkSyntheticCollection/buckets=100/workers=8-16         	       1	  39597600 ns/op	  163728 B/op	    2944 allocs/op
+BenchmarkSyntheticCollection/buckets=100/workers=8-16         	       1	  40079100 ns/op	  165408 B/op	    2953 allocs/op
+BenchmarkSyntheticCollection/buckets=1000/workers=8-16        	       1	 372469600 ns/op	 1704672 B/op	   29103 allocs/op
+BenchmarkSyntheticCollection/buckets=1000/workers=8-16        	       1	 375641100 ns/op	 1697776 B/op	   29065 allocs/op
+BenchmarkSyntheticCollection/buckets=1000/workers=8-16        	       1	 379347400 ns/op	 1698000 B/op	   29067 allocs/op
+BenchmarkSyntheticCollection/buckets=1000/workers=8-16        	       1	 381161900 ns/op	 1698640 B/op	   29074 allocs/op
+BenchmarkSyntheticCollection/buckets=1000/workers=8-16        	       1	 380041700 ns/op	 1698976 B/op	   29073 allocs/op
+BenchmarkVerificationReplay/scans=10/buckets=100-16           	       1	   3261500 ns/op	 2616016 B/op	   13955 allocs/op
+BenchmarkVerificationReplay/scans=10/buckets=100-16           	       1	   2011900 ns/op	 2611072 B/op	   13951 allocs/op
+BenchmarkVerificationReplay/scans=10/buckets=100-16           	       1	   1755100 ns/op	 2610960 B/op	   13950 allocs/op
+BenchmarkVerificationReplay/scans=10/buckets=100-16           	       1	   2572000 ns/op	 2605936 B/op	   13945 allocs/op
+BenchmarkVerificationReplay/scans=10/buckets=100-16           	       1	   2632000 ns/op	 2605936 B/op	   13945 allocs/op
+BenchmarkVerificationReplay/scans=10/buckets=1000-16          	       1	  34126900 ns/op	27834912 B/op	  138564 allocs/op
+BenchmarkVerificationReplay/scans=10/buckets=1000-16          	       1	  26630700 ns/op	27835136 B/op	  138566 allocs/op
+BenchmarkVerificationReplay/scans=10/buckets=1000-16          	       1	  25217500 ns/op	27835232 B/op	  138568 allocs/op
+BenchmarkVerificationReplay/scans=10/buckets=1000-16          	       1	  25552000 ns/op	27834864 B/op	  138563 allocs/op
+BenchmarkVerificationReplay/scans=10/buckets=1000-16          	       1	  23477400 ns/op	27839968 B/op	  138569 allocs/op
+BenchmarkVerificationReplay/scans=25/buckets=1000-16          	       1	  59411800 ns/op	61063888 B/op	  303652 allocs/op
+BenchmarkVerificationReplay/scans=25/buckets=1000-16          	       1	  66249400 ns/op	61063904 B/op	  303652 allocs/op
+BenchmarkVerificationReplay/scans=25/buckets=1000-16          	       1	  60750600 ns/op	61063984 B/op	  303653 allocs/op
+BenchmarkVerificationReplay/scans=25/buckets=1000-16          	       1	  57861400 ns/op	61064048 B/op	  303654 allocs/op
+BenchmarkVerificationReplay/scans=25/buckets=1000-16          	       1	  66741900 ns/op	61064064 B/op	  303654 allocs/op
+BenchmarkHistorySave/scans=10/buckets=100-16                  	       1	   8035600 ns/op	    495184 history_bytes/op	 2004392 B/op	      56 allocs/op
+BenchmarkHistorySave/scans=10/buckets=100-16                  	       1	   8692900 ns/op	    495184 history_bytes/op	 2004384 B/op	      56 allocs/op
+BenchmarkHistorySave/scans=10/buckets=100-16                  	       1	   8280400 ns/op	    495184 history_bytes/op	 2004200 B/op	      51 allocs/op
+BenchmarkHistorySave/scans=10/buckets=100-16                  	       1	   7836600 ns/op	    495184 history_bytes/op	 2004200 B/op	      51 allocs/op
+BenchmarkHistorySave/scans=10/buckets=100-16                  	       1	   8787100 ns/op	    495184 history_bytes/op	  955384 B/op	      29 allocs/op
+BenchmarkHistorySave/scans=10/buckets=1000-16                 	       1	  52027100 ns/op	   4937494 history_bytes/op	 9393168 B/op	      29 allocs/op
+BenchmarkHistorySave/scans=10/buckets=1000-16                 	       1	  49992800 ns/op	   4937494 history_bytes/op	17784512 B/op	      59 allocs/op
+BenchmarkHistorySave/scans=10/buckets=1000-16                 	       1	  44396900 ns/op	   4937494 history_bytes/op	17784688 B/op	      63 allocs/op
+BenchmarkHistorySave/scans=10/buckets=1000-16                 	       1	  50435000 ns/op	   4937494 history_bytes/op	 9393176 B/op	      29 allocs/op
+BenchmarkHistorySave/scans=10/buckets=1000-16                 	       1	  56640700 ns/op	   4937494 history_bytes/op	17784688 B/op	      63 allocs/op
+PASS
+ok  	github.com/theprideofwolves/S3-buckets-auditor	6.073s

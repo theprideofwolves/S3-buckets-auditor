@@ -1,0 +1,2 @@
+Chromium version: 157.0.8103.39
+PASS: real headless Chromium light/dark, matching accent, setup navigation, keyboard focus, demo, download, mobile overflow, reload/restart theme persistence, no-JS fallback, four-stage verification and historical record downloads; no external requests or console errors.

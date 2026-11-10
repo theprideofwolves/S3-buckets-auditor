@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/theprideofwolves/S3-buckets-auditor/internal/onboarding"
 	"html/template"
 	"io"
 	"net"
@@ -26,6 +25,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+
+	"github.com/theprideofwolves/S3-buckets-auditor/internal/onboarding"
+	"github.com/theprideofwolves/S3-buckets-auditor/internal/webui"
 )
 
 type Scan struct {
@@ -33,6 +35,7 @@ type Scan struct {
 	At        time.Time
 	Demo      bool
 	Reports   []BucketReport
+	Label     string `json:",omitempty"`
 }
 type Ticket struct{ Key, State string }
 type History struct {
@@ -66,6 +69,17 @@ func loadApp(file string) (*App, error) {
 	}
 	if e = json.Unmarshal(b, &a.state); e != nil {
 		return nil, fmt.Errorf("history cannot be read; restore a backup rather than overwriting it: %w", e)
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(b, &fields) != nil || fields["Scans"] == nil || fields["Tickets"] == nil {
+		return nil, errors.New("history has an invalid structure; restore a backup rather than overwriting it")
+	}
+	seenIDs := map[string]bool{}
+	for _, scan := range a.state.Scans {
+		if scan.ID == "" || seenIDs[scan.ID] {
+			return nil, errors.New("history contains missing or duplicate scan IDs; restore a backup rather than overwriting it")
+		}
+		seenIDs[scan.ID] = true
 	}
 	if a.state.Tickets == nil {
 		a.state.Tickets = map[string]Ticket{}
@@ -104,37 +118,6 @@ func (a *App) save() error {
 	return os.Rename(name, a.file)
 }
 func concern(r BucketReport) bool { return r.PublicPolicy || r.IncompleteBlock }
-func compare(now Scan, old *Scan) map[string]string {
-	out := map[string]string{}
-	prior := map[string]BucketReport{}
-	if old != nil && old.Scope == now.Scope {
-		for _, r := range old.Reports {
-			prior[r.Name] = r
-		}
-	}
-	for _, r := range now.Reports {
-		p, ok := prior[r.Name]
-		s := "Checked controls enabled"
-		switch {
-		case len(r.Errors) > 0:
-			s = "Unknown — reassessment incomplete"
-		case concern(r) && (!ok):
-			s = "New concern"
-		case concern(r) && concern(p):
-			s = "Persistent concern"
-		case concern(r):
-			s = "New concern"
-		case ok && concern(p):
-			s = "Verified clear for checked controls"
-		}
-		out[r.Name] = s
-		delete(prior, r.Name)
-	}
-	for name := range prior {
-		out[name] = "Not assessed in this scan"
-	}
-	return out
-}
 func namesFrom(s string) ([]string, error) {
 	set := map[string]bool{}
 	for _, n := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' || r == ',' }) {
@@ -143,6 +126,10 @@ func namesFrom(s string) ([]string, error) {
 			continue
 		}
 		if len(n) < 3 || len(n) > 63 || strings.ContainsAny(n, " /\\:\t") {
+			return nil, fmt.Errorf("invalid bucket name %q", n)
+		}
+		alphanumeric := func(c byte) bool { return c >= 'a' && c <= 'z' || c >= '0' && c <= '9' }
+		if !alphanumeric(n[0]) || !alphanumeric(n[len(n)-1]) || strings.Contains(n, "..") || net.ParseIP(n) != nil {
 			return nil, fmt.Errorf("invalid bucket name %q", n)
 		}
 		for _, c := range n {
@@ -162,6 +149,18 @@ func namesFrom(s string) ([]string, error) {
 	sort.Strings(out)
 	return out, nil
 }
+func validAccount(account *string) bool {
+	if account == nil || len(*account) != 12 {
+		return false
+	}
+	for _, c := range *account {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func collect(ctx context.Context, profile, region, targets string) (Scan, error) {
 	scan := Scan{ID: randomID(), At: time.Now().UTC()}
 	names, e := namesFrom(targets)
@@ -177,7 +176,7 @@ func collect(ctx context.Context, profile, region, targets string) (Scan, error)
 		return scan, errors.New("AWS configuration failed; check the selected profile and SSO session")
 	}
 	id, e := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
-	if e != nil || id.Account == nil {
+	if e != nil || id == nil || !validAccount(id.Account) {
 		return scan, errors.New("AWS identity check failed; sign in to your profile and check connectivity")
 	}
 	scan.Scope = *id.Account + " / " + region
@@ -206,23 +205,44 @@ func collect(ctx context.Context, profile, region, targets string) (Scan, error)
 	}
 	return scan, nil
 }
-func demoScan() Scan {
-	scan := Scan{ID: randomID(), Scope: "SYNTHETIC DEMO", Demo: true, At: time.Now().UTC(), Reports: []BucketReport{{Name: "demo-public-policy", PublicPolicy: true}, {Name: "demo-incomplete-block", IncompleteBlock: true}, {Name: "demo-checked-controls"}, {Name: "demo-access-denied", Errors: []string{"policy: AccessDenied (synthetic)"}}}}
-	for i := range scan.Reports {
-		r := &scan.Reports[i]
-		r.PolicyState = "not public according to policy status"
-		r.BlockState = "all four flags enabled"
-		if r.PublicPolicy {
-			r.PolicyState = "public according to policy status"
-		}
-		if r.IncompleteBlock {
-			r.BlockState = "one or more flags disabled"
-		}
-		if len(r.Errors) > 0 {
-			r.PolicyState = "unknown"
-		}
+func demoReport(name string, public, incomplete bool) BucketReport {
+	r := BucketReport{Name: name, PublicPolicy: public, IncompleteBlock: incomplete,
+		PolicyState: "not public according to policy status", BlockState: "all four flags enabled",
+		Controls: &BucketControls{PolicyPublic: boolValue(public), BlockConfigurationPresent: boolValue(true),
+			BlockPublicAcls: boolValue(true), IgnorePublicAcls: boolValue(true), BlockPublicPolicy: boolValue(!incomplete), RestrictPublicBuckets: boolValue(true)}}
+	if public {
+		r.PolicyState = "public according to policy status"
 	}
-	return scan
+	if incomplete {
+		r.BlockState = "one or more flags disabled"
+	}
+	return r
+}
+
+func demoScan() Scan {
+	denied := demoReport("demo-access-denied", false, false)
+	denied.PolicyState = "unknown"
+	denied.Controls.PolicyPublic = nil
+	denied.Errors = []string{"policy: AccessDenied (synthetic)"}
+	return Scan{ID: randomID(), Scope: "SYNTHETIC DEMO", Demo: true, At: time.Now().UTC(), Reports: []BucketReport{
+		demoReport("demo-public-policy", true, false), demoReport("demo-incomplete-block", false, true),
+		demoReport("demo-checked-controls", false, false), denied,
+	}}
+}
+
+// A separate synthetic scope teaches the entire verification workflow without
+// altering the four-bucket first-run demo or making any external requests.
+func verificationDemo() []Scan {
+	at := time.Now().UTC().Add(-3 * time.Minute)
+	concern := demoReport("demo-verification-bucket", true, true)
+	denied := BucketReport{Name: concern.Name, PolicyState: "unknown", BlockState: "unknown", Controls: &BucketControls{}, Errors: []string{"AccessDenied (synthetic): both reads unavailable"}}
+	labels := []string{"1 - Concern observed", "2 - Inspection denied", "3 - Bucket not assessed", "4 - Controls verified clear"}
+	reports := [][]BucketReport{{concern}, {denied}, {}, {demoReport(concern.Name, false, false)}}
+	scans := make([]Scan, 4)
+	for i := range scans {
+		scans[i] = Scan{ID: randomID(), Scope: "SYNTHETIC VERIFICATION DEMO", Demo: true, At: at.Add(time.Duration(i) * time.Minute), Label: labels[i], Reports: reports[i]}
+	}
+	return scans
 }
 
 func ticketID(scope, bucket string) string { return scope + "|" + bucket }
@@ -270,6 +290,12 @@ func (a *App) jira(ctx context.Context, base, email, secret, method, path string
 		}
 		return v.Key, nil
 	}
+	if method == "GET" && strings.HasPrefix(path, "/rest/api/3/issue/") {
+		var v struct{ Key string }
+		if resp.StatusCode != http.StatusOK || json.Unmarshal(data, &v) != nil || v.Key != strings.TrimPrefix(path, "/rest/api/3/issue/") {
+			return "", errors.New("Jira did not return the requested issue; link was not saved")
+		}
+	}
 	return "", nil
 }
 func adf(text string) any {
@@ -278,7 +304,7 @@ func adf(text string) any {
 func (a *App) handler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	w.Header().Set("Content-Security-Policy", webui.CSP)
 	if r.Host != a.host {
 		http.Error(w, "Invalid host", 403)
 		return
@@ -304,7 +330,7 @@ func (a *App) handler(w http.ResponseWriter, r *http.Request) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if r.URL.Path == "/export" {
+	if r.URL.Path == "/export" || r.URL.Path == "/verification" {
 		if r.Method != "GET" {
 			http.Error(w, "GET required", 405)
 			return
@@ -313,7 +339,17 @@ func (a *App) handler(w http.ResponseWriter, r *http.Request) {
 			if s.ID == r.URL.Query().Get("id") {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Content-Disposition", "attachment; filename=scan-"+s.ID+".json")
-				json.NewEncoder(w).Encode(s)
+				if r.URL.Path == "/verification" {
+					record, err := a.verificationRecord(s.ID)
+					if err != nil {
+						http.Error(w, "Verification unavailable", 500)
+						return
+					}
+					w.Header().Set("Content-Disposition", "attachment; filename=verification-"+s.ID+".json")
+					json.NewEncoder(w).Encode(record)
+				} else {
+					json.NewEncoder(w).Encode(s)
+				}
 				return
 			}
 		}
@@ -337,18 +373,12 @@ func (a *App) handler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	delta := map[string]string{}
+	var evidence VerificationRecord
 	if selected != nil {
-		var old *Scan
-		for i := range a.state.Scans {
-			v := &a.state.Scans[i]
-			if v.ID == selected.ID {
-				break
-			}
-			if v.Scope == selected.Scope {
-				old = v
-			}
+		evidence, _ = a.verificationRecord(selected.ID)
+		for _, bucket := range evidence.Buckets {
+			delta[bucket.Name] = bucket.Assessment
 		}
-		delta = compare(*selected, old)
 	}
 	panel := template.HTML("")
 	profile, region, targets := "", "us-east-1", ""
@@ -366,17 +396,21 @@ func (a *App) handler(w http.ResponseWriter, r *http.Request) {
 		Tickets                  map[string]Ticket
 		Guide                    template.HTML
 		Profile, Region, Targets string
-	}{a.token, message, selected, a.state.Scans, delta, a.state.Tickets, panel, profile, region, targets}
+		Verification             VerificationRecord
+	}{a.token, message, selected, a.state.Scans, delta, a.state.Tickets, panel, profile, region, targets, evidence}
 	if e := page.Execute(w, data); e != nil {
 		return
 	}
 }
 func (a *App) action(r *http.Request) string {
 	switch r.FormValue("action") {
-	case "demo", "scan":
+	case "demo", "scan", "demo-verification":
 		var s Scan
+		var additions []Scan
 		var e error
-		if r.FormValue("action") == "demo" {
+		if r.FormValue("action") == "demo-verification" {
+			additions = verificationDemo()
+		} else if r.FormValue("action") == "demo" {
 			s = demoScan()
 		} else {
 			region := strings.TrimSpace(r.FormValue("region"))
@@ -390,15 +424,19 @@ func (a *App) action(r *http.Request) string {
 				return e.Error()
 			}
 		}
-		a.state.Scans = append(a.state.Scans, s)
+		if additions == nil {
+			additions = []Scan{s}
+		}
+		before := len(a.state.Scans)
+		a.state.Scans = append(a.state.Scans, additions...)
 		if e = a.save(); e != nil {
-			a.state.Scans = a.state.Scans[:len(a.state.Scans)-1]
+			a.state.Scans = a.state.Scans[:before]
 			return "Could not save scan; check disk space and data directory permissions."
 		}
 		if a.guide != nil {
 			a.guide.Complete()
 		}
-		return "Scan saved. Next: review each observation and any unknowns, then download the evidence. Jira handoff is optional."
+		return "Scan saved."
 	case "ticket", "link":
 		var selected *Scan
 		for i := range a.state.Scans {
@@ -442,11 +480,13 @@ func (a *App) action(r *http.Request) string {
 		if previous.State == "pending" || previous.State == "uncertain" {
 			return "A previous create may have succeeded. Find the issue in Jira using the correlation ID below, then link its key before retrying."
 		}
-		if len(report.Errors) > 0 {
+		if !completeObservation(*report) {
 			return "Inspection incomplete: rescan successfully before sending verification or findings."
 		}
 		status, _ := report.Status()
 		description := fmt.Sprintf("S3 configuration review\nAccount/region: %s\nBucket: %s\nObserved: %s\nPublic policy: %t; incomplete block: %t\nScan: %s at %s\nCorrelation: %s\nScope: bucket policy status and bucket-level Public Access Block only. Not proof of effective anonymous access. A clear rescan verifies only these checks; analyst review is required. No automatic ticket closure.", selected.Scope, report.Name, status, report.PublicPolicy, report.IncompleteBlock, selected.ID, selected.At.Format(time.RFC3339), keyID)
+		record, _ := a.verificationRecord(selected.ID)
+		description += verificationSummary(record, report.Name)
 		if previous.Key != "" {
 			_, e = a.jira(r.Context(), base, r.FormValue("email"), r.FormValue("secret"), "POST", "/rest/api/3/issue/"+previous.Key+"/comment", map[string]any{"body": adf(description)})
 			if e != nil {
@@ -571,7 +611,29 @@ func launch() error {
 var page = template.Must(template.New("page").Funcs(template.FuncMap{"tid": ticketID}).Parse(pageHTML))
 
 func (a *App) initGuide() {
-	a.guide = onboarding.New(onboarding.Config{Name: "S3 Auditor", Token: a.token, Host: a.host, Dir: filepath.Dir(a.file), Jira: true, Intro: "Collect S3 configuration evidence and follow a finding through remediation.", Expected: "Expect two configuration concerns, one checked-controls example and one unknown inspection. Unknown is not a pass. No AWS calls or real Jira tickets are made.", Next: "Review the observations and unknowns, export the selected scan, then set up an authorized AWS profile when you are ready.", Steps: []string{"Use an existing authorized AWS profile. For SSO, sign in with your organization first; for example: aws sso login --profile my-profile.", "Choose the bucket region and test identity below. The check confirms account identity only, not S3 access permissions.", "Open the workspace and scan named buckets. Blank targets discover up to 1000; discovery needs additional ListBuckets permission.", "Required read actions are GetBucketPolicyStatus and GetBucketPublicAccessBlock. Ask your administrator for read-only access; this tool never changes buckets."}, Fields: []onboarding.Field{{Name: "profile", Label: "AWS profile", Hint: "Blank uses the default SDK credential chain."}, {Name: "region", Label: "AWS region", Hint: "Use the region containing the buckets you want to inspect.", Default: "us-east-1"}, {Name: "targets", Label: "Optional bucket names", Hint: "Comma-separated names. Blank enables discovery in the workspace."}}, DemoFields: map[string]string{"action": "demo"}, Check: checkAWSIdentity})
+	a.guide = onboarding.New(onboarding.Config{
+		Name:     "S3 Auditor",
+		Token:    a.token,
+		Host:     a.host,
+		Dir:      filepath.Dir(a.file),
+		Jira:     true,
+		Intro:    "Review two S3 configuration controls, save evidence, and compare reassessments.",
+		Expected: "Four synthetic buckets: two configuration concerns, one checked-controls result and one unknown inspection. No AWS calls or real Jira tickets.",
+		Next:     "Review unknown observations, then export this scan.",
+		Steps: []string{
+			"Use an existing authorized AWS profile. For SSO, sign in with your organization first; for example: aws sso login --profile my-profile.",
+			"Choose the bucket region and test identity below. The check confirms account identity only, not S3 access permissions.",
+			"Open the workspace and scan named buckets. Blank targets discover up to 1000; discovery needs additional ListBuckets permission.",
+			"Required read actions are GetBucketPolicyStatus and GetBucketPublicAccessBlock. Ask your administrator for read-only access; this tool never changes buckets.",
+		},
+		Fields: []onboarding.Field{
+			{Name: "profile", Label: "AWS profile", Hint: "Blank uses the default SDK credential chain."},
+			{Name: "region", Label: "AWS region", Hint: "Use the region containing the buckets you want to inspect.", Default: "us-east-1"},
+			{Name: "targets", Label: "Optional bucket names", Hint: "Comma-separated names. Blank enables discovery in the workspace."},
+		},
+		DemoFields: map[string]string{"action": "demo"},
+		Check:      checkAWSIdentity,
+	})
 }
 func checkAWSIdentity(ctx context.Context, v map[string]string) (string, error) {
 	if strings.TrimSpace(v["region"]) == "" {
@@ -586,7 +648,7 @@ func checkAWSIdentity(ctx context.Context, v map[string]string) (string, error) 
 		return "", errors.New("Cannot load the AWS profile. Check its name and your AWS configuration. No scan has run.")
 	}
 	id, e := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
-	if e != nil || id.Account == nil {
+	if e != nil || id == nil || !validAccount(id.Account) {
 		return "", errors.New("AWS identity check failed. Sign in or renew your SSO session, then check profile, region and connectivity. No scan has run.")
 	}
 	return "AWS identity verified for account " + *id.Account + ". Confirm this is the account you intended. Bucket permissions are not verified by this check; open the workspace to run a read-only scan.", nil

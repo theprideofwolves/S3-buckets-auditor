@@ -2,9 +2,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,19 +13,22 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 func TestCompareSafety(t *testing.T) {
-	old := Scan{Scope: "account-a", Reports: []BucketReport{{Name: "risk", PublicPolicy: true}, {Name: "missing", PublicPolicy: true}}}
+	old := Scan{Scope: "account-a", Reports: []BucketReport{demoReport("risk", true, false), demoReport("missing", true, false)}}
 	for _, tc := range []struct {
 		name string
 		r    BucketReport
 		want string
 	}{
-		{"persistent", BucketReport{Name: "risk", PublicPolicy: true}, "Persistent concern"},
-		{"resolved", BucketReport{Name: "risk"}, "Verified clear for checked controls"},
+		{"persistent", demoReport("risk", true, false), "Persistent concern"},
+		{"resolved", demoReport("risk", false, false), "Verified clear for checked controls"},
 		{"denied", BucketReport{Name: "risk", Errors: []string{"denied"}}, "Unknown — reassessment incomplete"},
-		{"new", BucketReport{Name: "new", IncompleteBlock: true}, "New concern"},
+		{"new", demoReport("new", false, true), "New concern"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := compare(Scan{Scope: old.Scope, Reports: []BucketReport{tc.r}}, &old)
@@ -35,7 +37,7 @@ func TestCompareSafety(t *testing.T) {
 			}
 		})
 	}
-	if got := compare(Scan{Scope: "other", Reports: []BucketReport{{Name: "risk", PublicPolicy: true}}}, &old); got["risk"] != "New concern" {
+	if got := compare(Scan{Scope: "other", Reports: []BucketReport{demoReport("risk", true, false)}}, &old); got["risk"] != "New concern" {
 		t.Fatal(got)
 	}
 }
@@ -136,7 +138,7 @@ func TestOversizedAndEscaping(t *testing.T) {
 	a := testApp(t)
 	a.state.Scans = []Scan{{ID: "test", Reports: []BucketReport{{Name: "<script>alert(1)</script>"}}}}
 	w := request(a, "GET", "/?token="+a.token, nil)
-	if strings.Contains(w.Body.String(), "<script>") {
+	if strings.Contains(w.Body.String(), "<script>alert(1)</script>") || !strings.Contains(w.Body.String(), "&lt;script&gt;alert(1)&lt;/script&gt;") {
 		t.Fatal("XSS")
 	}
 	w = request(a, "POST", "/?token="+a.token, url.Values{"action": {strings.Repeat("x", 70<<10)}})
@@ -174,7 +176,7 @@ func TestJiraCreateDedupAndUncertain(t *testing.T) {
 			defer server.Close()
 			a := testApp(t)
 			a.client = server.Client()
-			a.state.Scans = []Scan{{ID: "live", Scope: "123 / us-east-1", At: time.Now(), Reports: []BucketReport{{Name: "bucket", PublicPolicy: true}}}}
+			a.state.Scans = []Scan{{ID: "live", Scope: "123 / us-east-1", At: time.Now(), Reports: []BucketReport{demoReport("bucket", true, false)}}}
 			f := url.Values{"action": {"ticket"}, "id": {"live"}, "bucket": {"bucket"}, "url": {server.URL}, "email": {"analyst@test.com"}, "secret": {"private-token"}, "project": {"SEC"}, "kind": {"Task"}}
 			r := httptest.NewRequest("POST", "/", strings.NewReader(f.Encode()))
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -292,7 +294,7 @@ func TestPersistenceFailureDoesNotSend(t *testing.T) {
 	a.client = server.Client()
 	a.file = filepath.Join(t.TempDir(), "directory")
 	os.Mkdir(a.file, 0700)
-	a.state.Scans = []Scan{{ID: "live", Scope: "123 / region", Reports: []BucketReport{{Name: "bucket", PublicPolicy: true}}}}
+	a.state.Scans = []Scan{{ID: "live", Scope: "123 / region", Reports: []BucketReport{demoReport("bucket", true, false)}}}
 	f := url.Values{"action": {"ticket"}, "id": {"live"}, "bucket": {"bucket"}, "url": {server.URL}, "project": {"SEC"}, "kind": {"Task"}}
 	r := httptest.NewRequest("POST", "/", strings.NewReader(f.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -307,12 +309,12 @@ func TestVerifiedLinkAndCommentPath(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		paths = append(paths, r.Method+" "+r.URL.Path)
 		w.WriteHeader(200)
-		io.WriteString(w, `{}`)
+		io.WriteString(w, `{"key":"SEC-123"}`)
 	}))
 	defer server.Close()
 	a := testApp(t)
 	a.client = server.Client()
-	a.state.Scans = []Scan{{ID: "live", Scope: "account / region", Reports: []BucketReport{{Name: "bucket"}}}}
+	a.state.Scans = []Scan{{ID: "live", Scope: "account / region", Reports: []BucketReport{demoReport("bucket", false, false)}}}
 	f := url.Values{"action": {"link"}, "id": {"live"}, "bucket": {"bucket"}, "url": {server.URL}, "key": {"SEC-123"}}
 	r := httptest.NewRequest("POST", "/", strings.NewReader(f.Encode()))
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -442,5 +444,75 @@ func TestScanSaveFailurePreservesHistoryAndGuideProgress(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(a.file), "onboarding.json")); !os.IsNotExist(err) {
 		t.Fatal("failed save marked onboarding complete", err)
+	}
+}
+
+func TestSelectedHistoryAndScopeIsolation(t *testing.T) {
+	a := testApp(t)
+	at := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	a.state.Scans = []Scan{
+		{ID: "prior", Scope: "111111111111 / us-east-1", At: at, Reports: []BucketReport{demoReport("bucket", true, false)}},
+		{ID: "other-account", Scope: "222222222222 / us-east-1", At: at.Add(time.Hour), Reports: []BucketReport{demoReport("bucket", false, false)}},
+		{ID: "other-region", Scope: "111111111111 / us-west-2", At: at.Add(2 * time.Hour), Reports: []BucketReport{demoReport("bucket", false, false)}},
+		demoScan(),
+		{ID: "selected", Scope: "111111111111 / us-east-1", At: at.Add(3 * time.Hour), Reports: []BucketReport{demoReport("bucket", true, false)}},
+		{ID: "newest", Scope: "111111111111 / us-east-1", At: at.Add(4 * time.Hour), Reports: []BucketReport{demoReport("bucket", false, false)}},
+	}
+	if err := a.save(); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := loadApp(a.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored.host = a.host
+	w := request(restored, "GET", "/?token="+restored.token+"&scan=selected", nil)
+	if !strings.Contains(w.Body.String(), "Persistent concern") || strings.Contains(w.Body.String(), "Verified clear for checked controls") {
+		t.Fatal("selected history used another scope or a later scan")
+	}
+	w = request(restored, "GET", "/export?token="+restored.token+"&id=selected", nil)
+	var exported Scan
+	if err := json.Unmarshal(w.Body.Bytes(), &exported); err != nil {
+		t.Fatal(err)
+	}
+	if exported.ID != "selected" || !exported.At.Equal(at.Add(3*time.Hour)) || exported.Scope != "111111111111 / us-east-1" || exported.Demo || !exported.Reports[0].PublicPolicy {
+		t.Fatal(exported)
+	}
+	for _, scope := range []string{"222222222222 / us-east-1", "111111111111 / us-west-2", "SYNTHETIC DEMO"} {
+		now := Scan{Scope: scope, Reports: []BucketReport{demoReport("bucket", true, false)}}
+		if got := compare(now, &a.state.Scans[0]); got["bucket"] != "New concern" {
+			t.Fatal(scope, got)
+		}
+	}
+}
+
+func TestJiraEvidenceContainsSelectedObservation(t *testing.T) {
+	a := testApp(t)
+	at := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	a.state.Scans = []Scan{{ID: "observed-scan", Scope: "123456789012 / us-east-1", At: at, Reports: []BucketReport{{Name: "test-bucket", PolicyState: "not public according to policy status", BlockState: "all four flags enabled"}}}}
+	calls := 0
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != "POST" || r.URL.Path != "/rest/api/3/issue/SEC-123/comment" {
+			t.Error(r.Method, r.URL.Path)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+		}
+		for _, want := range []string{"123456789012 / us-east-1", "test-bucket", "observed-scan", "2024-01-02T03:04:05Z", "Checked controls enabled", "No automatic ticket closure"} {
+			if !strings.Contains(string(body), want) {
+				t.Errorf("evidence missing %q", want)
+			}
+		}
+		w.WriteHeader(201)
+	}))
+	defer srv.Close()
+	a.client = srv.Client()
+	a.state.Tickets[srv.URL+"|123456789012 / us-east-1|test-bucket"] = Ticket{Key: "SEC-123", State: "linked"}
+	form := url.Values{"action": {"ticket"}, "id": {"observed-scan"}, "bucket": {"test-bucket"}, "url": {srv.URL}}
+	out := request(a, "POST", "/?token="+a.token, form)
+	if calls != 1 || !strings.Contains(out.Body.String(), "Evidence comment added to SEC-123") {
+		t.Fatal(calls, out.Body.String())
 	}
 }

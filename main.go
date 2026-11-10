@@ -7,10 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/smithy-go"
 	"io"
 	"log"
 	"os"
@@ -18,6 +14,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 )
 
 type BucketReport struct {
@@ -25,6 +26,7 @@ type BucketReport struct {
 	PublicPolicy, IncompleteBlock bool
 	Errors                        []string
 	PolicyState, BlockState       string
+	Controls                      *BucketControls `json:",omitempty"`
 }
 
 func (r BucketReport) Status() (string, string) {
@@ -50,7 +52,7 @@ func codeIs(err error, code string) bool {
 	return errors.As(err, &e) && e.ErrorCode() == code
 }
 func inspect(ctx context.Context, c bucketAPI, name string) BucketReport {
-	r := BucketReport{Name: name, PolicyState: "unknown", BlockState: "unknown"}
+	r := BucketReport{Name: name, PolicyState: "unknown", BlockState: "unknown", Controls: &BucketControls{}}
 	if ctx.Err() != nil {
 		r.Errors = append(r.Errors, "inspection cancelled before collection")
 		return r
@@ -59,12 +61,14 @@ func inspect(ctx context.Context, c bucketAPI, name string) BucketReport {
 	switch {
 	case codeIs(err, "NoSuchBucketPolicy"):
 		r.PolicyState = "no bucket policy"
+		r.Controls.PolicyPublic = boolValue(false)
 	case err != nil:
 		r.Errors = append(r.Errors, "policy: "+err.Error())
 	case p == nil || p.PolicyStatus == nil || p.PolicyStatus.IsPublic == nil:
 		r.Errors = append(r.Errors, "policy: empty API response")
 	default:
 		r.PublicPolicy = aws.ToBool(p.PolicyStatus.IsPublic)
+		r.Controls.PolicyPublic = boolValue(r.PublicPolicy)
 		r.PolicyState = "not public according to policy status"
 		if r.PublicPolicy {
 			r.PolicyState = "public according to policy status"
@@ -75,12 +79,23 @@ func inspect(ctx context.Context, c bucketAPI, name string) BucketReport {
 	case codeIs(err, "NoSuchPublicAccessBlockConfiguration"):
 		r.IncompleteBlock = true
 		r.BlockState = "configuration absent"
+		r.Controls.BlockConfigurationPresent = boolValue(false)
 	case err != nil:
 		r.Errors = append(r.Errors, "block: "+err.Error())
 	case b == nil || b.PublicAccessBlockConfiguration == nil:
 		r.Errors = append(r.Errors, "block: empty API response")
 	default:
 		v := b.PublicAccessBlockConfiguration
+		r.Controls.BlockConfigurationPresent = boolValue(true)
+		r.Controls.BlockPublicAcls = v.BlockPublicAcls
+		r.Controls.IgnorePublicAcls = v.IgnorePublicAcls
+		r.Controls.BlockPublicPolicy = v.BlockPublicPolicy
+		r.Controls.RestrictPublicBuckets = v.RestrictPublicBuckets
+		for _, flag := range []*bool{v.BlockPublicAcls, v.IgnorePublicAcls, v.BlockPublicPolicy, v.RestrictPublicBuckets} {
+			if flag != nil && !*flag {
+				r.IncompleteBlock = true
+			}
+		}
 		if v.BlockPublicAcls == nil || v.BlockPublicPolicy == nil || v.IgnorePublicAcls == nil || v.RestrictPublicBuckets == nil {
 			r.Errors = append(r.Errors, "block: missing flag in API response")
 			return r
@@ -167,6 +182,9 @@ func run() error {
 	workers := flag.Int("workers", 8, "Concurrent checks (1-64)")
 	demo := flag.String("demo", "", "Synthetic reports JSON; no AWS calls")
 	flag.Parse()
+	if flag.NArg() != 0 {
+		return errors.New("unexpected positional arguments; use -bucket, -csv or -demo")
+	}
 	if *workers < 1 || *workers > 64 {
 		return fmt.Errorf("workers must be 1-64")
 	}

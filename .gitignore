@@ -9,3 +9,7 @@
 /release/
 /package-*/
 *.exe~
+
+# Python test helpers
+__pycache__/
+*.pyc

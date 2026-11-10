@@ -1,73 +1,87 @@
-# Interview study guide
+# Interview guide
 
-## 30 seconds
-I improved a Go S3 reviewer into a local evidence workflow. It checks policy
-public status and bucket Public Access Block, records scan history, compares
-reassessments, and explicitly hands selected findings to Jira. API failures stay
-unknown; ticket closure is independent from verified configuration evidence.
+## Your 30-second explanation
 
-## Two minutes
-Trace `launch` -> `handler` -> `action` -> `collect` -> STS identity -> AWS
-worker pool -> `inspect` -> durable history. Then `compare` uses the previous
-matching scope. Jira first saves intent, sends a create, and saves the returned
-key. Lost replies trigger manual reconciliation, not duplicate creation.
+“I built a read-only Go S3 configuration auditor with remediation verification. It checks bucket-policy public status and bucket Public Access Block. Its concern history survives denied or missing inspections, and successful observations show exactly which controls changed and which concerns were cleared. A local UI exports the evidence; Jira handoff is explicit.”
 
-## Five minutes
-Demonstrate offline data, unknown states, an evidence export, restart persistence,
-then explain an authorized live scan and the Jira disclosure. Explain that tests
-use fake AWS/TLS Jira and cannot establish live permission compatibility.
+Use that wording only for code you have reviewed and can explain. This is an implemented workflow, not an industry-first research claim or a production deployment claim.
 
-## Concepts and questions
-- Why not call this a public exposure scanner? Account controls, ACLs, access
-points and anonymous object access are not evaluated.
-- What is evidence vs conclusion? Timestamped API observations support only
-specific checks; they do not certify the bucket or company.
-- Why does bool false not mean pass? If a call failed, its state is unknown.
-- What is backpressure? Workers consume bounded jobs rather than creating a
-goroutine per bucket. Results are retained for deterministic sorting.
-- Why random launch token? Prevent ordinary unrelated local web pages from
-invoking authenticated local actions. Not protection against a privileged OS user.
-- Why not retry Jira POST automatically? The remote write could have succeeded
-before its response was lost. Local and remote transactions are not atomic.
-- Can SHA/file hashes guarantee integrity? Not implemented as an integrity ledger;
-the local OS user can edit history. Do not claim tamper-proof audit evidence.
-- Why JSON over SQLite? Simple local distribution; whole-file rewrites and memory
-are explicit limitations. Test disk and history scale before broadening deployment.
-- What does remediation verification mean? A successful fresh result for these
-checks, with account/region and timestamp. Not proof of all access paths.
+## A three-minute offline demonstration
 
-## Exercises
-1. Trace one public result through inspect, Status, compare and export.
-2. Change a fake block response to nil: predict unknown, then run the test.
-3. Simulate Jira 429: inspect intent state and show repeat-create protection.
-4. Remove a bucket from the next scan: explain not-assessed versus resolved.
-5. Explain why losing history invalidates cross-run duplicate prevention.
-6. Read each test and describe what it does NOT establish.
+1. Launch the app and run **Try the verification walkthrough**. All four scans are synthetic; no cloud resources or tickets are created.
+2. Select **1 - Concern observed** in history. Show public policy and disabled BlockPublicPolicy; there are two aggregate concerns.
+3. Select **2 - Inspection denied**, then **3 - Bucket not assessed**. Expand remediation verification: the concerns are still open and the last successful observation remains stage 1.
+4. Select **4 - Controls verified clear**. Show public → not public and disabled → enabled, compared with stage 1. Expand a control to show the denied/missing events between observation and verification.
+5. Export the verification record. Explain the selected scan, nullable values, episodes, limitations and separately labeled current Jira mappings.
 
-## Honest resume wording
-Built a Go S3 configuration evidence tool with bounded workers, local scan
-history, reassessment comparison, and reviewer-triggered Jira handoff; tested
-incomplete scans, local request boundaries, and uncertain remote-write outcomes.
-Use live-deployment claims only after documented actual validation.
+The original **Try the guided demo** is a separate four-bucket overview. Do not conflate either demo with a live assessment.
 
-## S3 setup and result semantics
+## Follow the code
 
-Explain why a successful STS identity check proves the account identity rather
-than S3 read permissions. Jira identity likewise does not establish project
-authorization. Both checks are separate from assessment and handoff.
+- `launch` creates the loopback server and single-writer lock, then loads history.
+- `handler` enforces local request guards and selects the saved scan.
+- `action` validates input, calls `collect` or an offline demo, appends observations and saves atomically. It rolls back on failure.
+- `collect` uses STS for caller account identity, paginated discovery if needed, and `audit`'s bounded workers.
+- `inspect` calls only GetBucketPolicyStatus and GetPublicAccessBlock. Nullable observations preserve missing/denied information.
+- `verification` replays matching scope and Demo class through selection. `ControlEvidence.observe` updates last-known evidence and concern episodes.
+- The workspace and `GET /verification` use that same replay. The CLI shares collection but does not store/replay GUI history.
+- Jira persists intent, sends the reviewed request and stores the returned key. Ambiguous creates require reconciliation.
 
-The four-row demo includes unknown collection as a normal review case. Saving
-that assessment completes the guide, not the security review. Follow the error
-precedence through inspect, BucketReport.Status, compare and the ticket guard.
-An unknown observation cannot produce a verified-clear reassessment or a Jira
-verification comment. Missing buckets are not assessed, not automatically resolved.
+## Questions you should be able to answer
 
-History compares the immediately previous saved scan in the same account/region.
-It is not a per-bucket last-known inventory: a bucket omitted from an intervening
-scan may appear as a new concern on return. Explain this limit rather than
-claiming continuous drift monitoring or an immutable audit ledger.
+| Question | Explain |
+| --- | --- |
+| Why pointers to booleans? | false is a real observation; nil means no successful observation. Default false must never erase uncertainty. |
+| Why retain history across denied scans? | Loss of visibility is not evidence that a known configuration concern was fixed. |
+| Why separate aggregate checks from flags? | There are two checks; four flags explain the block result. Counting the aggregate plus every disabled flag as separate bucket findings would inflate counts. |
+| Can one control clear while the bucket is unknown? | Yes. A successful policy read can clear its episode while the block read fails; overall assessment and Jira evidence delivery remain incomplete. |
+| What if a concern returns? | A successful clear closes an episode; a later concern starts another episode. |
+| Why replay instead of storing another ledger? | One source of truth, deterministic historical views, no second transaction to keep consistent. Tradeoff: growing CPU/memory cost. |
+| What does “as of” mean? | Saved append order through selection, matching scope and Demo. Later observations are excluded. It is not wall-clock sorting or proof of continuous exposure. |
+| What about old history? | Preserve it. Infer only logically established summaries; an old incomplete block summary does not reveal the disabled flag. |
+| What do the timestamps prove? | Scan observation times, not exact configuration-change times. Collection spans time; episode ages are observational. |
+| Why is public policy plus enabled blocking possible? | The policy and blocking settings describe different controls; neither alone proves effective anonymous access. Account-level and other access paths are out of scope. |
+| Is STS identity bucket ownership? | No. It identifies the caller account, not S3 permissions or ownership of every named bucket. |
+| Why no automatic Jira closure? | These checks provide limited configuration evidence; analyst review and ticket workflow remain outside automatic actions. |
+| Is Jira delivery exactly once? | No. Durable intent blocks blind repeat creates, but uncertain results need reconciliation; evidence comments can repeat. |
+| Are exports tamper-proof? | No. The local user can edit history. There is no authenticated audit ledger. |
+| Why not replace Prowler/Access Analyzer? | This is a focused local evidence/reassessment workflow, not a broader or equivalent cloud exposure analyzer. |
 
-Use app_test.go, main_test.go and the S3-only packaged smoke test as evidence.
-Distinguish the GUI demo from the CLI JSON reporting fixture, and fake-service
-contract checks from live AWS/Jira validation. Describe the AI assistance and
-the implementation/testing work you personally reviewed and can demonstrate.
+## Tests and failure cases to explain
+
+Start with `TestConcernSurvivesDeniedAndMissingThenVerified`, `TestPartialSuccessOnlyClearsObservedControl`, `TestLegacyDetailsAreNotInvented` and `TestVerificationExportRestartAndBatchRollback` in `verification_test.go`.
+
+Then explain the fake SDK tests, all 16 block-flag combinations, unknown Jira guards, uncertain creates and failed-save rollback. Run `python .github/scripts/check.py`; distinguish those results from explicitly authorized live validation. Optional browser tests cover the available Chromium engine, not all browsers or accessibility.
+
+Earlier reproduced bugs included malformed STS identity, invalid history opening as an empty workspace and Jira linking accepting malformed success bodies. Explain the failed cases and narrow fixes, not just that tests passed.
+
+## Honest résumé wording
+
+- Built a Go S3 auditor that retains unresolved configuration concerns across denied and missing assessments, compares individual Public Access Block flags, and exports selected-scan remediation-verification evidence.
+- Tested scoped replay, partial-read failures, persistence rollback and uncertain Jira delivery using race tests, fake AWS/Jira services and offline browser automation.
+
+Do not invent users, time savings, production scale, live compatibility or personal review that has not happened. Disclose AI assistance appropriately and distinguish generated code from the design/testing you understand.
+
+## Before an interview
+
+Explain each nullable field without looking it up; trace one episode from first concern to verified clear; predict a partial-failure result; identify where replay stops; explain the complexity and trust boundary. Finish the short manual checklist. Those explanations matter more than adding features.
+
+
+## Explain the recorded metrics
+
+The [Windows evidence report](docs/results/2026-11-10-windows/README.md) records
+47 top-level tests and 129 named leaf cases, 79.29% Go statement coverage,
+48 policy/flag combinations and 10 unusable-response cases. Do not add top-level
+and leaf counts together. Statement coverage is not branch coverage or a
+security score; packaged/browser execution is separate from that percentage.
+
+There are five samples per synthetic timing workload. Quote the workload,
+median and observed range, not an invented p95 or SLA. Collection uses two fake
+1 ms timers per bucket; replay uses saved synthetic histories; persistence
+replaces existing local JSON history. Allocated bytes/op are not peak RAM.
+These measurements do not establish AWS throughput or analyst time savings.
+
+To reproduce: `python .github/scripts/measure.py --output dist/results`.
+Source fingerprints identify tested contents, and GitHub Actions separately
+checks the published commit. For a resume, emphasize the verified uncertainty
+semantics and reproducible evidence; use timing only with the synthetic qualifier.

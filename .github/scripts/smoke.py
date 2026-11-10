@@ -1,19 +1,21 @@
 import html,json,os,re,subprocess,sys,tempfile,threading,queue,urllib.request,urllib.parse
 from pathlib import Path
+from offline_env import offline_environment
 executable=sys.argv[1]
 def launch(env):
  p=subprocess.Popen([str(Path(executable).resolve())],env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding='utf-8');q=queue.Queue();threading.Thread(target=lambda:q.put(p.stdout.readline()),daemon=True).start()
  try:line=q.get(timeout=30)
  except queue.Empty:p.kill();p.wait();raise RuntimeError('no launcher URL')
  match=re.search(r'http://\S+',line)
- if not match:p.kill();p.wait();raise RuntimeError('launcher failed: '+line)
+ if not match:p.kill();p.wait();raise RuntimeError('launcher failed before opening the UI')
  return p,match.group(0)
 def get(url):return urllib.request.urlopen(url,timeout=30).read().decode()
 def post(url,fields):
  data=urllib.parse.urlencode(fields).encode()
  return urllib.request.urlopen(urllib.request.Request(url,data=data,headers={'Content-Type':'application/x-www-form-urlencoded'}),timeout=30).read().decode()
 with tempfile.TemporaryDirectory(prefix='s3-auditor-',dir=os.environ.get('S3_AUDITOR_SMOKE_TEMP')) as root:
- env=dict(os.environ,S3_AUDITOR_DATA_DIR=str(Path(root,'S3Auditor')),S3_AUDITOR_NO_BROWSER='1')
+ env=offline_environment(root)
+ env['S3_AUDITOR_DATA_DIR']=str(Path(root,'S3Auditor'))
  p,url=launch(env)
  try:
   page=get(url);assert 'Try the guided demo' in page and 'Use my data' in page and 'ZgotmplZ' not in page
@@ -59,5 +61,34 @@ with tempfile.TemporaryDirectory(prefix='s3-auditor-',dir=os.environ.get('S3_AUD
   page=post(url+'&onboarding=demo',{'action':'demo'})
   assert len(re.findall(r'href="(/\?token=[^\"]+&scan=[^\"]+)"',page))==2
   assert json.loads(get(route('/export')+'&id='+value['ID']))==value,'new demo overwrote prior history'
+  page=post(url,{'action':'demo-verification'})
+  assert 'Remediation verification' in page and 'Controls verified clear' in page
+  history=json.loads(Path(root,'S3Auditor','history.json').read_text())
+  stages=history['Scans'][-4:]
+  assert len(history['Scans'])==6 and all(s['Demo'] and s['Scope']=='SYNTHETIC VERIFICATION DEMO' for s in stages)
+  records=[]
+  for index,stage in enumerate(stages):
+   record=json.loads(get(route('/verification')+'&id='+stage['ID']))
+   records.append(record)
+   bucket=record['Buckets'][0]
+   assert record['Version']==1 and record['Scan']==stage
+   assert bucket['OpenConcerns']==(2 if index<3 else 0)
+   policy=bucket['Controls'][0]
+   assert len(policy['Timeline'])==index+1
+   assert policy['Episodes'][0]['FirstObserved']['ScanID']==stages[0]['ID']
+   assert (policy['Episodes'][0]['VerifiedClear'] is None)==(index<3)
+   if index in (1,2): assert policy['LastKnown']['ScanID']==stages[0]['ID']
+   selected=get(route('/')+'&scan='+stage['ID'])
+   assert 'Remediation verification' in selected and 'Jira handoff' not in selected
+  assert [e['State'] for e in records[-1]['Buckets'][0]['Controls'][0]['Timeline']]==['concern','unknown','not_assessed','clear']
+  assert records[-1]['Buckets'][0]['Controls'][4]['Change']=='disabled → enabled'
+  assert json.loads(get(route('/export')+'&id='+value['ID']))==value
  finally:p.terminate();p.wait(timeout=15)
- print('S3 Auditor: packaged welcome, setup, guided demo, next step, export, restart safety and remembered completion PASS')
+ for lock in Path(root).glob('*/application.lock'):lock.unlink()
+ p,url=launch(env)
+ try:
+  token=urllib.parse.parse_qs(urllib.parse.urlparse(url).query)['token'][0]
+  for stage,record in zip(stages,records):
+   assert json.loads(get(route('/verification')+'&id='+stage['ID']))==record,'restart changed verification history'
+ finally:p.terminate();p.wait(timeout=15)
+ print('S3 Auditor: packaged welcome, setup, guided demo, four-stage verification, as-of exports and restart persistence PASS')

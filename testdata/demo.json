@@ -1,6 +1,60 @@
 [
- {"Name":"demo-controls-enabled"},
- {"Name":"demo-public-policy","PublicPolicy":true,"IncompleteBlock":true},
- {"Name":"demo-block-incomplete","IncompleteBlock":true},
- {"Name":"demo-access-denied","Errors":["policy: synthetic AccessDenied"]}
+  {
+    "Name": "demo-controls-enabled",
+    "PolicyState": "not public according to policy status",
+    "BlockState": "all four flags enabled",
+    "Controls": {
+      "PolicyPublic": false,
+      "BlockConfigurationPresent": true,
+      "BlockPublicAcls": true,
+      "IgnorePublicAcls": true,
+      "BlockPublicPolicy": true,
+      "RestrictPublicBuckets": true
+    }
+  },
+  {
+    "Name": "demo-public-policy",
+    "PublicPolicy": true,
+    "IncompleteBlock": true,
+    "PolicyState": "public according to policy status",
+    "BlockState": "one or more flags disabled",
+    "Controls": {
+      "PolicyPublic": true,
+      "BlockConfigurationPresent": true,
+      "BlockPublicAcls": true,
+      "IgnorePublicAcls": true,
+      "BlockPublicPolicy": false,
+      "RestrictPublicBuckets": true
+    }
+  },
+  {
+    "Name": "demo-block-incomplete",
+    "IncompleteBlock": true,
+    "PolicyState": "not public according to policy status",
+    "BlockState": "one or more flags disabled",
+    "Controls": {
+      "PolicyPublic": false,
+      "BlockConfigurationPresent": true,
+      "BlockPublicAcls": true,
+      "IgnorePublicAcls": true,
+      "BlockPublicPolicy": false,
+      "RestrictPublicBuckets": true
+    }
+  },
+  {
+    "Name": "demo-access-denied",
+    "Errors": [
+      "policy: synthetic AccessDenied"
+    ],
+    "PolicyState": "unknown",
+    "BlockState": "all four flags enabled",
+    "Controls": {
+      "PolicyPublic": null,
+      "BlockConfigurationPresent": true,
+      "BlockPublicAcls": true,
+      "IgnorePublicAcls": true,
+      "BlockPublicPolicy": true,
+      "RestrictPublicBuckets": true
+    }
+  }
 ]

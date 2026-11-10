@@ -116,3 +116,115 @@ func TestInvalidTargetsFailBeforeAWSCalls(t *testing.T) {
 		t.Fatal("invalid input made AWS calls", calls)
 	}
 }
+
+func TestAWSInvalidIdentityCannotAssess(t *testing.T) {
+	for _, account := range []string{"", "   ", "not-an-account"} {
+		t.Run(fmt.Sprintf("account-%q", account), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "POST" {
+					t.Error("invalid identity reached S3")
+					w.WriteHeader(403)
+					return
+				}
+				w.Header().Set("Content-Type", "application/xml")
+				fmt.Fprintf(w, `<GetCallerIdentityResponse><GetCallerIdentityResult><Account>%s</Account></GetCallerIdentityResult></GetCallerIdentityResponse>`, account)
+			}))
+			defer srv.Close()
+			fakeAWSEnvironment(t, srv.URL)
+			if message, err := checkAWSIdentity(context.Background(), map[string]string{"region": "us-east-1"}); err == nil {
+				t.Errorf("invalid identity reported verified: %s", message)
+			}
+			if scan, err := collect(context.Background(), "", "us-east-1", "test-bucket"); err == nil {
+				t.Errorf("invalid identity produced assessment: %+v", scan)
+			}
+		})
+	}
+}
+
+func TestAWSUnusableBucketResponsesStayUnknown(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"wrong-region", 301, `<Error><Code>PermanentRedirect</Code><Message>wrong region</Message></Error>`},
+		{"denied", 403, `<Error><Code>AccessDenied</Code></Error>`},
+		{"empty", 200, ""},
+		{"malformed", 200, `<broken`},
+		{"missing-fields", 200, `<Empty/>`},
+	} {
+		for _, control := range []string{"policyStatus", "publicAccessBlock"} {
+			t.Run(tc.name+"/"+control, func(t *testing.T) {
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/xml")
+					if r.Method == "POST" {
+						fmt.Fprint(w, `<GetCallerIdentityResponse><GetCallerIdentityResult><Account>123456789012</Account></GetCallerIdentityResult></GetCallerIdentityResponse>`)
+						return
+					}
+					if r.URL.Query().Has(control) {
+						w.WriteHeader(tc.status)
+						fmt.Fprint(w, tc.body)
+						return
+					}
+					if r.URL.Query().Has("policyStatus") {
+						fmt.Fprint(w, `<PolicyStatus><IsPublic>false</IsPublic></PolicyStatus>`)
+						return
+					}
+					fmt.Fprint(w, `<PublicAccessBlockConfiguration><BlockPublicAcls>true</BlockPublicAcls><IgnorePublicAcls>true</IgnorePublicAcls><BlockPublicPolicy>true</BlockPublicPolicy><RestrictPublicBuckets>true</RestrictPublicBuckets></PublicAccessBlockConfiguration>`)
+				}))
+				defer srv.Close()
+				fakeAWSEnvironment(t, srv.URL)
+				scan, err := collect(context.Background(), "", "us-east-1", "test-bucket")
+				if err != nil || len(scan.Reports) != 1 {
+					t.Fatal(scan, err)
+				}
+				report := scan.Reports[0]
+				status, _ := report.Status()
+				if status != "Unknown / incomplete" || len(report.Errors) == 0 {
+					t.Fatalf("unusable response became clean: %+v", report)
+				}
+				if control == "policyStatus" && report.PolicyState != "unknown" || control == "publicAccessBlock" && report.BlockState != "unknown" {
+					t.Fatal(report)
+				}
+			})
+		}
+	}
+}
+
+func TestTargetLimit(t *testing.T) {
+	names := make([]string, 1000)
+	for i := range names {
+		names[i] = fmt.Sprintf("bucket-%04d", i)
+	}
+	if got, err := namesFrom(strings.Join(names, ",") + "," + names[0]); err != nil || len(got) != 1000 {
+		t.Fatal(len(got), err)
+	}
+	if _, err := namesFrom(strings.Join(names, ",") + ",one-too-many"); err == nil {
+		t.Fatal("1001 unique targets accepted")
+	}
+}
+
+func TestDiscoveryLimitBeforeBucketReads(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/xml")
+		if r.Method == "POST" {
+			fmt.Fprint(w, `<GetCallerIdentityResponse><GetCallerIdentityResult><Account>123456789012</Account></GetCallerIdentityResult></GetCallerIdentityResponse>`)
+			return
+		}
+		if r.URL.Path != "/" {
+			t.Error("over-limit discovery reached bucket reads")
+			w.WriteHeader(403)
+			return
+		}
+		fmt.Fprint(w, `<ListAllMyBucketsResult><Buckets>`)
+		for i := 0; i < 1001; i++ {
+			fmt.Fprintf(w, `<Bucket><Name>bucket-%04d</Name></Bucket>`, i)
+		}
+		fmt.Fprint(w, `</Buckets></ListAllMyBucketsResult>`)
+	}))
+	defer srv.Close()
+	fakeAWSEnvironment(t, srv.URL)
+	if scan, err := collect(context.Background(), "", "us-east-1", ""); err == nil || !strings.Contains(err.Error(), "1000") || len(scan.Reports) != 0 {
+		t.Fatal(scan, err)
+	}
+}

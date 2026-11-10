@@ -1,4 +1,6 @@
-# S3 Auditor v1.2.1: release verification
+# S3 Auditor v1.3.0: release preparation
+
+Source includes the verification workflow and recorded offline results. Portable release publication is a separate step; a passing source build is not a new published ZIP.
 
 ## Automated
 Unit/integration tests cover scope comparisons, missing/denied observations,
@@ -49,3 +51,18 @@ SDK workflow tests use a local fake STS/S3 service with synthetic credentials to
 check identity-only setup, paginated discovery, bucket reads and denied checks.
 Additional tests cover unknown observations blocking Jira creates/comments and
 failed history saves retaining earlier scans without marking guide completion.
+
+
+## v1.3.0 verification workflow
+
+Added nullable control observations, last-successful comparisons, concern episodes
+through denied/missing scans, recurrence, and an as-of-selected verification record.
+The UI and export share pure replay; the original raw scan export remains available.
+Older history loads conservatively without inventing individual disabled flags.
+Current Jira mappings are explicitly distinguished from historical observations.
+
+The separate synthetic four-stage walkthrough saves atomically and cannot contact
+AWS/Jira. Race/unit, SDK, packaged workflow and optional browser checks cover
+replay, partial success, scope isolation, persistence and delivery guards. These
+fake-service checks do not establish live compatibility. Human acceptance remains
+in docs/TESTING.md. Earlier releases may not contain this new workflow.

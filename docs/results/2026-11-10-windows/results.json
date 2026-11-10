@@ -1,0 +1,574 @@
+{
+  "measured_at_utc": "2026-11-10T16:00:19.926021+00:00",
+  "environment": {
+    "system": "Windows",
+    "release": "11",
+    "architecture": "AMD64",
+    "logical_processors": 16,
+    "python": "3.14.3",
+    "go": "go version go1.25.5 windows/amd64"
+  },
+  "source": {
+    "algorithm": "SHA256(sorted relative path + NUL + LF-normalized contents + NUL)",
+    "fingerprint": "3eccd229ae519ea103070a80c9aa3a3cee226714788f9c7935d343250272e67d",
+    "files": [
+      {
+        "path": ".github/scripts/browser_smoke.cjs",
+        "sha256": "d1cb7293c9c47876e5495adbc532510bf7b2676f4024375a6352f01d0675cde9"
+      },
+      {
+        "path": ".github/scripts/check.py",
+        "sha256": "dd7ad999bc143ae8d0b5edd531af20644bf104f04000a1c71a9f3becde25620c"
+      },
+      {
+        "path": ".github/scripts/cli_smoke.py",
+        "sha256": "e89f6b7743902795c5b3f31f06f27439ffeb07918c716bf6770d9167e8f27cfd"
+      },
+      {
+        "path": ".github/scripts/measure.py",
+        "sha256": "083d1e35d2d2f73db9d1c62ba3dd992503fb858901d23ec1c8571587c39c3b99"
+      },
+      {
+        "path": ".github/scripts/offline_env.py",
+        "sha256": "11be0721ab6060d5e82084c947b53c4ae29e90130ce88173eba4bc2e1e083436"
+      },
+      {
+        "path": ".github/scripts/smoke.py",
+        "sha256": "853c0fece26f9e9e504d1c975e87c7952af28391e3cc3a1a7463d78ccb088f6b"
+      },
+      {
+        "path": ".github/workflows/go.yml",
+        "sha256": "626e23041a658aa77383c332ae52e2185adc8774fcb4e90acd6a70c1fea30f54"
+      },
+      {
+        "path": "VERSION",
+        "sha256": "64d23f858ef51b0f996e4966d4e27c0371b437e2d2787890b1f7ad22d4ec5663"
+      },
+      {
+        "path": "app.go",
+        "sha256": "b7ccb3daeb70e0304f813c59e7eff7148a1d61e2f45d582ef6e9a6cd2b652f2a"
+      },
+      {
+        "path": "app_test.go",
+        "sha256": "b77bc9015d3c4b37ca1718aa770db8fb0848ea213da2040d7d2478093049bc56"
+      },
+      {
+        "path": "aws_workflow_test.go",
+        "sha256": "956c8aa8c803ea1103b09a73b7f442592cd6c54582c3ac8775beb7405b802d10"
+      },
+      {
+        "path": "benchmark_test.go",
+        "sha256": "daa75842964408cd0bc3dc4bab8ce154226be564f67ea155ebeef5389eca58a1"
+      },
+      {
+        "path": "edge_cases_test.go",
+        "sha256": "e8dce1befce9ab4edff635039c36d828006260415c15ad3ec0ef0f63a35578f5"
+      },
+      {
+        "path": "go.mod",
+        "sha256": "dc18b6357f927a7c450f468b734ef06680a9768b7756197b1824b5af6781616c"
+      },
+      {
+        "path": "go.sum",
+        "sha256": "6c162a5dbca4a8ae3d27d16988348ba119e6f92a4ce02b607079d7aeee750a61"
+      },
+      {
+        "path": "internal/onboarding/onboarding.go",
+        "sha256": "9c3f36a3f6c9d978198bf7187166ac38f5d86b345b9ffd251974024bc4c525ca"
+      },
+      {
+        "path": "internal/onboarding/onboarding_test.go",
+        "sha256": "1fa4e440bb25511c60f57de9ca818597caee150f39f44d07457476e88e01269c"
+      },
+      {
+        "path": "internal/webui/webui.go",
+        "sha256": "758e2ecfbce080a60ba8cc056f57a27093dca0ccdef22ada7db4963af9c86903"
+      },
+      {
+        "path": "main.go",
+        "sha256": "9ae7a698ae71cc960b8e5bd3e4059fc166ef5490d61d60acc8d5adf64904b753"
+      },
+      {
+        "path": "main_test.go",
+        "sha256": "847a635e1bd065a9a6231bf31315db449210f2b427d295abc3a81bfbf0056968"
+      },
+      {
+        "path": "test_environment_test.go",
+        "sha256": "25c739878e5dc02bd7fa913458f92ce2af3a69719b82b3c837f4a2a9b1984eb3"
+      },
+      {
+        "path": "testdata/demo.json",
+        "sha256": "5b5ef40913bc22afc78d60782a796ec1925076996665a8f1c72699e0d214d7af"
+      },
+      {
+        "path": "truth_matrix_test.go",
+        "sha256": "575b9bdb8bb9a977cee2e265ca2db3fdea30bc59426144beeb47e7034495eb0e"
+      },
+      {
+        "path": "ui.go",
+        "sha256": "a1b836f68e850364e84f95d1003589900a89184b520bece136370d049757e83a"
+      },
+      {
+        "path": "verification.go",
+        "sha256": "da881d08f7e3c3ac08b82c289bb271de855a9d07612e9754ef0ac701c5160a25"
+      },
+      {
+        "path": "verification_test.go",
+        "sha256": "63631057ce7378417181cae52485394a2f611a04e863f61e1d01a9f0a21b7efe"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "name": "Go version",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 0.0693,
+      "command": "go version",
+      "log": "go-version.log"
+    },
+    {
+      "name": "Race tests and coverage",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 7.7318,
+      "command": "go test -race -count=1 -json -coverpkg=./... -coverprofile=<repo>\\docs\\results\\2026-11-10-windows\\coverage.out ./...",
+      "log": "go-tests.jsonl"
+    },
+    {
+      "name": "Coverage detail",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 0.9414,
+      "command": "go tool cover -func=<repo>\\docs\\results\\2026-11-10-windows\\coverage.out",
+      "log": "coverage.log"
+    },
+    {
+      "name": "Go vet",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 0.9292,
+      "command": "go vet ./...",
+      "log": "vet.log"
+    },
+    {
+      "name": "Root build",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 1.6442,
+      "command": "go build -trimpath -o <temporary>\\s3-auditor.exe .",
+      "log": "build.log"
+    },
+    {
+      "name": "Packaged UI workflow",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 1.7086,
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe <repo>\\.github\\scripts\\smoke.py <temporary>\\s3-auditor.exe",
+      "log": "ui-smoke.log"
+    },
+    {
+      "name": "CLI workflow",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 1.5057,
+      "command": "<home>\\AppData\\Local\\Programs\\Python\\Python314\\python.exe <repo>\\.github\\scripts\\cli_smoke.py <temporary>\\s3-auditor.exe",
+      "log": "cli-smoke.log"
+    },
+    {
+      "name": "Offline Chromium workflow",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 3.966,
+      "command": "node <repo>\\.github\\scripts\\browser_smoke.cjs <temporary>\\s3-auditor.exe",
+      "log": "browser-smoke.log"
+    },
+    {
+      "name": "Synthetic benchmarks",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 7.7335,
+      "command": "go test -run=^$ -bench=Benchmark(SyntheticCollection|VerificationReplay|HistorySave)$ -benchmem -benchtime=1x -count=5 .",
+      "log": "benchmarks.log"
+    }
+  ],
+  "tests": {
+    "top_level_passed": 47,
+    "named_leaf_cases_passed": 129,
+    "failed_named_cases": 0,
+    "skipped_named_cases": 0,
+    "packages": {
+      "github.com/theprideofwolves/S3-buckets-auditor/internal/webui": "pass",
+      "github.com/theprideofwolves/S3-buckets-auditor": "pass",
+      "github.com/theprideofwolves/S3-buckets-auditor/internal/onboarding": "pass"
+    },
+    "truth_matrix_cases_passed": 48,
+    "unusable_sdk_response_cases_passed": 10
+  },
+  "coverage": {
+    "total": {
+      "statements": 927,
+      "covered": 735,
+      "percent": 79.29
+    },
+    "packages": {
+      "github.com/theprideofwolves/S3-buckets-auditor": {
+        "statements": 751,
+        "covered": 573,
+        "percent": 76.3
+      },
+      "github.com/theprideofwolves/S3-buckets-auditor/internal/onboarding": {
+        "statements": 174,
+        "covered": 160,
+        "percent": 91.95
+      },
+      "github.com/theprideofwolves/S3-buckets-auditor/internal/webui": {
+        "statements": 2,
+        "covered": 2,
+        "percent": 100.0
+      }
+    }
+  },
+  "binary_bytes": 24454656,
+  "benchmarks": [
+    {
+      "name": "BenchmarkHistorySave/scans=10/buckets=100",
+      "samples": [
+        {
+          "iterations": 1,
+          "ns/op": 8035600.0,
+          "history_bytes/op": 495184.0,
+          "B/op": 2004392.0,
+          "allocs/op": 56.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 8692900.0,
+          "history_bytes/op": 495184.0,
+          "B/op": 2004384.0,
+          "allocs/op": 56.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 8280400.0,
+          "history_bytes/op": 495184.0,
+          "B/op": 2004200.0,
+          "allocs/op": 51.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 7836600.0,
+          "history_bytes/op": 495184.0,
+          "B/op": 2004200.0,
+          "allocs/op": 51.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 8787100.0,
+          "history_bytes/op": 495184.0,
+          "B/op": 955384.0,
+          "allocs/op": 29.0
+        }
+      ],
+      "repetitions": 5,
+      "median_ms": 8.2804,
+      "min_ms": 7.8366,
+      "max_ms": 8.7871,
+      "median_allocated_bytes": 2004200.0,
+      "median_allocations": 51.0
+    },
+    {
+      "name": "BenchmarkHistorySave/scans=10/buckets=1000",
+      "samples": [
+        {
+          "iterations": 1,
+          "ns/op": 52027100.0,
+          "history_bytes/op": 4937494.0,
+          "B/op": 9393168.0,
+          "allocs/op": 29.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 49992800.0,
+          "history_bytes/op": 4937494.0,
+          "B/op": 17784512.0,
+          "allocs/op": 59.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 44396900.0,
+          "history_bytes/op": 4937494.0,
+          "B/op": 17784688.0,
+          "allocs/op": 63.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 50435000.0,
+          "history_bytes/op": 4937494.0,
+          "B/op": 9393176.0,
+          "allocs/op": 29.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 56640700.0,
+          "history_bytes/op": 4937494.0,
+          "B/op": 17784688.0,
+          "allocs/op": 63.0
+        }
+      ],
+      "repetitions": 5,
+      "median_ms": 50.435,
+      "min_ms": 44.3969,
+      "max_ms": 56.6407,
+      "median_allocated_bytes": 17784512.0,
+      "median_allocations": 59.0
+    },
+    {
+      "name": "BenchmarkSyntheticCollection/buckets=100/workers=1",
+      "samples": [
+        {
+          "iterations": 1,
+          "ns/op": 279487500.0,
+          "B/op": 162384.0,
+          "allocs/op": 2943.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 302410300.0,
+          "B/op": 162192.0,
+          "allocs/op": 2937.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 301774700.0,
+          "B/op": 162272.0,
+          "allocs/op": 2938.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 301420000.0,
+          "B/op": 161408.0,
+          "allocs/op": 2931.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 308380300.0,
+          "B/op": 162192.0,
+          "allocs/op": 2937.0
+        }
+      ],
+      "repetitions": 5,
+      "median_ms": 301.7747,
+      "min_ms": 279.4875,
+      "max_ms": 308.3803,
+      "median_allocated_bytes": 162192.0,
+      "median_allocations": 2937.0
+    },
+    {
+      "name": "BenchmarkSyntheticCollection/buckets=100/workers=8",
+      "samples": [
+        {
+          "iterations": 1,
+          "ns/op": 40627200.0,
+          "B/op": 168800.0,
+          "allocs/op": 2974.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 40359500.0,
+          "B/op": 166816.0,
+          "allocs/op": 2964.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 39702800.0,
+          "B/op": 164048.0,
+          "allocs/op": 2946.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 39597600.0,
+          "B/op": 163728.0,
+          "allocs/op": 2944.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 40079100.0,
+          "B/op": 165408.0,
+          "allocs/op": 2953.0
+        }
+      ],
+      "repetitions": 5,
+      "median_ms": 40.0791,
+      "min_ms": 39.5976,
+      "max_ms": 40.6272,
+      "median_allocated_bytes": 165408.0,
+      "median_allocations": 2953.0
+    },
+    {
+      "name": "BenchmarkSyntheticCollection/buckets=1000/workers=8",
+      "samples": [
+        {
+          "iterations": 1,
+          "ns/op": 372469600.0,
+          "B/op": 1704672.0,
+          "allocs/op": 29103.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 375641100.0,
+          "B/op": 1697776.0,
+          "allocs/op": 29065.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 379347400.0,
+          "B/op": 1698000.0,
+          "allocs/op": 29067.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 381161900.0,
+          "B/op": 1698640.0,
+          "allocs/op": 29074.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 380041700.0,
+          "B/op": 1698976.0,
+          "allocs/op": 29073.0
+        }
+      ],
+      "repetitions": 5,
+      "median_ms": 379.3474,
+      "min_ms": 372.4696,
+      "max_ms": 381.1619,
+      "median_allocated_bytes": 1698640.0,
+      "median_allocations": 29073.0
+    },
+    {
+      "name": "BenchmarkVerificationReplay/scans=10/buckets=100",
+      "samples": [
+        {
+          "iterations": 1,
+          "ns/op": 3261500.0,
+          "B/op": 2616016.0,
+          "allocs/op": 13955.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 2011900.0,
+          "B/op": 2611072.0,
+          "allocs/op": 13951.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 1755100.0,
+          "B/op": 2610960.0,
+          "allocs/op": 13950.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 2572000.0,
+          "B/op": 2605936.0,
+          "allocs/op": 13945.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 2632000.0,
+          "B/op": 2605936.0,
+          "allocs/op": 13945.0
+        }
+      ],
+      "repetitions": 5,
+      "median_ms": 2.572,
+      "min_ms": 1.7551,
+      "max_ms": 3.2615,
+      "median_allocated_bytes": 2610960.0,
+      "median_allocations": 13950.0
+    },
+    {
+      "name": "BenchmarkVerificationReplay/scans=10/buckets=1000",
+      "samples": [
+        {
+          "iterations": 1,
+          "ns/op": 34126900.0,
+          "B/op": 27834912.0,
+          "allocs/op": 138564.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 26630700.0,
+          "B/op": 27835136.0,
+          "allocs/op": 138566.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 25217500.0,
+          "B/op": 27835232.0,
+          "allocs/op": 138568.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 25552000.0,
+          "B/op": 27834864.0,
+          "allocs/op": 138563.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 23477400.0,
+          "B/op": 27839968.0,
+          "allocs/op": 138569.0
+        }
+      ],
+      "repetitions": 5,
+      "median_ms": 25.552,
+      "min_ms": 23.4774,
+      "max_ms": 34.1269,
+      "median_allocated_bytes": 27835136.0,
+      "median_allocations": 138566.0
+    },
+    {
+      "name": "BenchmarkVerificationReplay/scans=25/buckets=1000",
+      "samples": [
+        {
+          "iterations": 1,
+          "ns/op": 59411800.0,
+          "B/op": 61063888.0,
+          "allocs/op": 303652.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 66249400.0,
+          "B/op": 61063904.0,
+          "allocs/op": 303652.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 60750600.0,
+          "B/op": 61063984.0,
+          "allocs/op": 303653.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 57861400.0,
+          "B/op": 61064048.0,
+          "allocs/op": 303654.0
+        },
+        {
+          "iterations": 1,
+          "ns/op": 66741900.0,
+          "B/op": 61064064.0,
+          "allocs/op": 303654.0
+        }
+      ],
+      "repetitions": 5,
+      "median_ms": 60.7506,
+      "min_ms": 57.8614,
+      "max_ms": 66.7419,
+      "median_allocated_bytes": 61063984.0,
+      "median_allocations": 303653.0
+    }
+  ],
+  "status": "PASS"
+}

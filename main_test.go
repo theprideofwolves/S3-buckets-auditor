@@ -3,13 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
-	"strings"
-	"testing"
-	"time"
 )
 
 type fakeAPI struct {
@@ -54,5 +55,28 @@ func TestConcurrentAuditAndReport(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Unknown / incomplete") || !strings.Contains(errs.String(), "AccessDenied") {
 		t.Fatal("lost error evidence")
+	}
+}
+
+func TestCollectorRetainsIndividualBlockFlags(t *testing.T) {
+	for mask := 0; mask < 16; mask++ {
+		flags := &types.PublicAccessBlockConfiguration{
+			BlockPublicAcls: aws.Bool(mask&1 != 0), IgnorePublicAcls: aws.Bool(mask&2 != 0),
+			BlockPublicPolicy: aws.Bool(mask&4 != 0), RestrictPublicBuckets: aws.Bool(mask&8 != 0),
+		}
+		report := inspect(context.Background(), flagAPI{flags: flags}, "test-bucket")
+		values := controlValues(report)
+		for flagIndex, observed := range values[2:] {
+			if observed == nil || *observed != (mask&(1<<flagIndex) != 0) {
+				t.Fatalf("mask %d: flag %d not retained", mask, flagIndex)
+			}
+		}
+	}
+	partial := &types.PublicAccessBlockConfiguration{BlockPublicAcls: aws.Bool(false), IgnorePublicAcls: aws.Bool(true), RestrictPublicBuckets: aws.Bool(true)}
+	report := inspect(context.Background(), flagAPI{flags: partial}, "test-bucket")
+	values := controlValues(report)
+	status, _ := report.Status()
+	if values[2] == nil || *values[2] || values[4] != nil || status != "Unknown / incomplete" || completeObservation(report) {
+		t.Fatal("partial response lost evidence or became a pass", report)
 	}
 }

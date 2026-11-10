@@ -47,3 +47,16 @@ observations worth reviewing. Keep that preference separate from history and
 ticket intent. Server-rendered forms avoid an extra frontend runtime. Use
 Referrer-Policy same-origin to preserve ordinary local form submissions while
 strict guards continue to reject foreign and opaque origins.
+
+
+## Remediation verification decisions (v1.3.0)
+
+- **Replay observations rather than persist another ledger.** One source of truth and atomic history saves prevent ledger/history divergence. The cost is repeated replay and larger in-memory timelines; this is a local tool, not a high-scale service.
+- **Track per-control episodes.** A known clearing observation closes that control; a gap does not. Partial success can clear one control while the overall bucket stays unknown. A recurrence creates a new episode rather than rewriting the first.
+- **Separate aggregate checks and flag details.** Policy status and overall bucket block configuration are the two concerns; four flags explain the latter. Counting each flag and its parent as independent findings would inflate results.
+- **Nullable observations and conservative legacy support.** An incomplete old summary cannot reveal the disabled flag. Preserve the old scan and leave per-flag history unknown. No guessed historical values or automatic rewrite.
+- **Append order, selected prefix and scope/class isolation.** Historical views exclude future observations and other scopes, even when timestamps collide or clocks skew. Timestamps are observations, not precise configuration-change times.
+- **Current Jira links are not historical Jira state.** Existing mappings have no revision history. Export them under CurrentTicketLinks with an explicit limitation; never silently label them as state at the selected scan.
+- **Demonstrate with a separate synthetic sequence.** Save concern/denied/missing/clear in one atomic batch, retaining the original four-bucket demo. All synthetic stages block real Jira handoff.
+
+These are implementation tradeoffs, not a claim of an industry-first algorithm. See docs/VERIFICATION.md and verification_test.go.
